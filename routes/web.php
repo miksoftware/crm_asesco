@@ -12,6 +12,7 @@ use App\Livewire\Settings\Roles\Edit as RolesEdit;
 use App\Livewire\Channels\Index as ChannelsIndex;
 use App\Livewire\Channels\Create as ChannelsCreate;
 use App\Livewire\Channels\Edit as ChannelsEdit;
+use App\Livewire\Help\TechnicalManual;
 
 // Guest routes
 Route::middleware('guest')->group(function () {
@@ -37,4 +38,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/configuracion/roles', RolesIndex::class)->name('settings.roles.index')->middleware('permission:roles.ver');
     Route::get('/configuracion/roles/crear', RolesCreate::class)->name('settings.roles.create')->middleware('permission:roles.crear');
     Route::get('/configuracion/roles/{role}/editar', RolesEdit::class)->name('settings.roles.edit')->middleware('permission:roles.editar');
+
+    // Help
+    Route::get('/ayuda/manual-tecnico', TechnicalManual::class)->name('help.technical-manual');
 });

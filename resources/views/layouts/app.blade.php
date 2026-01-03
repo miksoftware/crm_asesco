@@ -43,17 +43,13 @@
         <aside class="sidebar-gradient w-64 min-h-screen flex flex-col fixed left-0 top-0 z-40">
             <!-- Logo -->
             <div class="p-5 border-b border-gray-700">
-                <div class="flex items-center space-x-3">
-                    <div class="w-10 h-10 rounded-lg gradient-bg flex items-center justify-center">
-                        <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/>
-                        </svg>
-                    </div>
+                <a href="{{ route('dashboard') }}" class="flex items-center space-x-3">
+                    <img src="{{ asset('images/logo_asesco.png') }}" alt="ASESCO BPO" class="w-16 h-16 object-contain">
                     <div>
                         <h1 class="text-white font-bold">ASESCO</h1>
                         <p class="text-gray-400 text-xs">BPO System</p>
                     </div>
-                </div>
+                </a>
             </div>
 
             <!-- Navigation -->
@@ -150,14 +146,37 @@
                     </div>
                 </div>
                 @endif
+
+                <!-- Ayuda -->
+                @if($isAdmin)
+                <div x-data="{ open: {{ str_starts_with($currentRoute, 'help.') ? 'true' : 'false' }} }">
+                    <button @click="open = !open" class="w-full flex items-center justify-between px-4 py-3 rounded-lg {{ str_starts_with($currentRoute, 'help.') ? 'bg-gray-700/50 text-white' : 'text-gray-300 hover:bg-gray-700/50 hover:text-white' }} transition-all">
+                        <div class="flex items-center space-x-3">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                            </svg>
+                            <span>Ayuda</span>
+                        </div>
+                        <svg class="w-4 h-4 transition-transform" :class="{ 'rotate-180': open }" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                        </svg>
+                    </button>
+                    <div x-show="open" x-collapse class="mt-1 ml-4 space-y-1">
+                        <a href="{{ route('help.technical-manual') }}" class="flex items-center space-x-3 px-4 py-2.5 rounded-lg {{ $currentRoute === 'help.technical-manual' ? 'bg-gradient-to-r from-primary-500/20 to-secondary-500/20 text-white border-l-4 border-primary-500' : 'text-gray-400 hover:bg-gray-700/50 hover:text-white' }} transition-all">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>
+                            </svg>
+                            <span>Manual Técnico</span>
+                        </a>
+                    </div>
+                </div>
+                @endif
             </nav>
 
             <!-- User -->
             <div class="p-4 border-t border-gray-700">
                 <div class="flex items-center space-x-3">
-                    <div class="w-10 h-10 rounded-full gradient-bg flex items-center justify-center text-white font-semibold">
-                        {{ substr(auth()->user()->name ?? 'A', 0, 1) }}
-                    </div>
+                    <img class="w-10 h-10 rounded-full object-cover" src="{{ auth()->user()->profile_photo_url }}" alt="{{ auth()->user()->name }}">
                     <div class="flex-1 min-w-0">
                         <p class="text-white text-sm font-medium truncate">{{ auth()->user()->name ?? 'Admin' }}</p>
                         <p class="text-gray-400 text-xs truncate">{{ auth()->user()->email ?? '' }}</p>
