@@ -21,20 +21,20 @@ Route::middleware('guest')->group(function () {
 
 // Authenticated routes
 Route::middleware('auth')->group(function () {
-    Route::get('/dashboard', Dashboard::class)->name('dashboard');
+    Route::get('/dashboard', Dashboard::class)->name('dashboard')->middleware('permission:dashboard.ver');
 
     // Channels (WhatsApp)
-    Route::get('/canales', ChannelsIndex::class)->name('channels.index');
-    Route::get('/canales/crear', ChannelsCreate::class)->name('channels.create');
-    Route::get('/canales/{channel}/editar', ChannelsEdit::class)->name('channels.edit');
+    Route::get('/canales', ChannelsIndex::class)->name('channels.index')->middleware('permission:canales.ver');
+    Route::get('/canales/crear', ChannelsCreate::class)->name('channels.create')->middleware('permission:canales.crear');
+    Route::get('/canales/{channel}/editar', ChannelsEdit::class)->name('channels.edit')->middleware('permission:canales.editar');
 
     // Settings - Users
-    Route::get('/configuracion/usuarios', UsersIndex::class)->name('settings.users.index');
-    Route::get('/configuracion/usuarios/crear', UsersCreate::class)->name('settings.users.create');
-    Route::get('/configuracion/usuarios/{user}/editar', UsersEdit::class)->name('settings.users.edit');
+    Route::get('/configuracion/usuarios', UsersIndex::class)->name('settings.users.index')->middleware('permission:usuarios.ver');
+    Route::get('/configuracion/usuarios/crear', UsersCreate::class)->name('settings.users.create')->middleware('permission:usuarios.crear');
+    Route::get('/configuracion/usuarios/{user}/editar', UsersEdit::class)->name('settings.users.edit')->middleware('permission:usuarios.editar');
 
     // Settings - Roles
-    Route::get('/configuracion/roles', RolesIndex::class)->name('settings.roles.index');
-    Route::get('/configuracion/roles/crear', RolesCreate::class)->name('settings.roles.create');
-    Route::get('/configuracion/roles/{role}/editar', RolesEdit::class)->name('settings.roles.edit');
+    Route::get('/configuracion/roles', RolesIndex::class)->name('settings.roles.index')->middleware('permission:roles.ver');
+    Route::get('/configuracion/roles/crear', RolesCreate::class)->name('settings.roles.create')->middleware('permission:roles.crear');
+    Route::get('/configuracion/roles/{role}/editar', RolesEdit::class)->name('settings.roles.edit')->middleware('permission:roles.editar');
 });

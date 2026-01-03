@@ -14,6 +14,44 @@
     <!-- Form Card -->
     <div class="bg-white rounded-xl shadow-sm p-6">
         <form wire:submit="save" class="space-y-5">
+            <!-- Photo Upload -->
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">Foto de perfil</label>
+                <div class="flex items-center gap-4">
+                    <div class="shrink-0">
+                        @if ($photo)
+                            <img class="h-16 w-16 object-cover rounded-full" src="{{ $photo->temporaryUrl() }}" alt="Preview">
+                        @else
+                            <img class="h-16 w-16 object-cover rounded-full" src="{{ $user->profile_photo_url }}" alt="{{ $user->name }}">
+                        @endif
+                    </div>
+                    <div class="flex flex-col gap-2">
+                        <label class="cursor-pointer">
+                            <span class="px-4 py-2 border border-gray-300 rounded-xl text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors">
+                                {{ $user->profile_photo_path ? 'Cambiar imagen' : 'Seleccionar imagen' }}
+                            </span>
+                            <input type="file" wire:model="photo" accept="image/*" class="sr-only">
+                        </label>
+                        @if($user->profile_photo_path)
+                            <button type="button" wire:click="removePhoto" wire:confirm="¿Estás seguro de eliminar la foto?" 
+                                    class="text-sm text-red-600 hover:text-red-800">
+                                Eliminar foto
+                            </button>
+                        @endif
+                    </div>
+                    <div wire:loading wire:target="photo" class="text-sm text-gray-500">
+                        <svg class="animate-spin h-5 w-5 text-primary-500" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                    </div>
+                </div>
+                @error('photo')
+                    <p class="mt-1 text-sm text-red-500">{{ $message }}</p>
+                @enderror
+                <p class="mt-1 text-xs text-gray-500">JPG, PNG o GIF. Máximo 2MB.</p>
+            </div>
+
             <div>
                 <label for="name" class="block text-sm font-medium text-gray-700 mb-1">Nombre completo</label>
                 <input wire:model="name" type="text" id="name" 
@@ -41,7 +79,7 @@
                     @foreach($roles as $role)
                         <label class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer transition-all
                             {{ in_array($role->id, $selectedRoles) ? 'border-primary-500 bg-primary-50' : 'border-gray-200 hover:border-gray-300' }}">
-                            <input type="checkbox" wire:model="selectedRoles" value="{{ $role->id }}" class="sr-only">
+                            <input type="checkbox" wire:model.live="selectedRoles" value="{{ $role->id }}" class="sr-only">
                             <span class="w-2.5 h-2.5 rounded-full" style="background-color: {{ $role->color }}"></span>
                             <span class="text-sm {{ in_array($role->id, $selectedRoles) ? 'text-primary-700 font-medium' : 'text-gray-600' }}">
                                 {{ $role->display_name }}
@@ -54,6 +92,9 @@
                         </label>
                     @endforeach
                 </div>
+                @if(count($roles) == 0)
+                    <p class="text-sm text-gray-500">No hay roles disponibles</p>
+                @endif
             </div>
 
             <div class="border-t border-gray-200 pt-5">
@@ -99,3 +140,4 @@
         </form>
     </div>
 </div>
+

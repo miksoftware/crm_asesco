@@ -21,6 +21,20 @@ class Index extends Component
 
     public int $perPage = 10;
 
+    public bool $canCreate = false;
+    public bool $canEdit = false;
+    public bool $canDelete = false;
+
+    public function mount(): void
+    {
+        $user = auth()->user();
+        $isAdmin = $user->hasRole('admin');
+        
+        $this->canCreate = $isAdmin || $user->hasPermission('roles.crear');
+        $this->canEdit = $isAdmin || $user->hasPermission('roles.editar');
+        $this->canDelete = $isAdmin || $user->hasPermission('roles.eliminar');
+    }
+
     public function updatingSearch(): void
     {
         $this->resetPage();
@@ -28,12 +42,22 @@ class Index extends Component
 
     public function confirmDelete(int $id): void
     {
+        if (!$this->canDelete) {
+            $this->dispatch('toast', type: 'error', message: 'No tienes permiso para eliminar roles');
+            return;
+        }
+        
         $this->dispatch('confirm-delete', id: $id, message: 'El rol y sus asignaciones serán eliminados');
     }
 
     #[On('deleteConfirmed')]
     public function delete(int $id): void
     {
+        if (!$this->canDelete) {
+            $this->dispatch('toast', type: 'error', message: 'No tienes permiso para eliminar roles');
+            return;
+        }
+
         $role = Role::find($id);
 
         if (!$role) {

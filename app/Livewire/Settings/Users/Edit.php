@@ -5,15 +5,19 @@ namespace App\Livewire\Settings\Users;
 use App\Models\Role;
 use App\Models\User;
 use Livewire\Component;
+use Livewire\WithFileUploads;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule as ValidationRule;
 
 #[Layout('layouts.app')]
 #[Title('Editar Usuario')]
 class Edit extends Component
 {
+    use WithFileUploads;
+
     public User $user;
 
     public string $name = '';
@@ -21,6 +25,7 @@ class Edit extends Component
     public string $password = '';
     public string $password_confirmation = '';
     public array $selectedRoles = [];
+    public $photo = null;
 
     public function mount(User $user): void
     {
@@ -36,7 +41,17 @@ class Edit extends Component
             'name' => 'required|string|max:255',
             'email' => ['required', 'email', ValidationRule::unique('users', 'email')->ignore($this->user->id)],
             'password' => 'nullable|min:8|confirmed',
+            'photo' => 'nullable|image|max:2048',
         ];
+    }
+
+    public function removePhoto(): void
+    {
+        if ($this->user->profile_photo_path) {
+            Storage::disk('public')->delete($this->user->profile_photo_path);
+            $this->user->update(['profile_photo_path' => null]);
+            $this->dispatch('toast', type: 'success', message: 'Foto eliminada correctamente');
+        }
     }
 
     public function save(): void
@@ -50,6 +65,14 @@ class Edit extends Component
 
         if (!empty($this->password)) {
             $data['password'] = Hash::make($this->password);
+        }
+
+        if ($this->photo) {
+            // Delete old photo if exists
+            if ($this->user->profile_photo_path) {
+                Storage::disk('public')->delete($this->user->profile_photo_path);
+            }
+            $data['profile_photo_path'] = $this->photo->store('profile-photos', 'public');
         }
 
         $this->user->update($data);
@@ -66,3 +89,4 @@ class Edit extends Component
         ]);
     }
 }
+

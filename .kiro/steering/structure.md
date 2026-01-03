@@ -4,48 +4,85 @@
 
 ```
 app/
-├── Http/Controllers/          # Controladores tradicionales (uso mínimo)
+├── Http/
+│   ├── Controllers/           # Controladores tradicionales (uso mínimo)
+│   └── Middleware/
+│       └── CheckPermission.php # Middleware de verificación de permisos
 ├── Livewire/                  # Componentes Livewire (patrón principal)
-│   ├── Auth/                  # Autenticación (Login, Logout)
-│   ├── Channels/              # Canales WhatsApp (Index, Create, Edit)
-│   └── Settings/              # Configuración
-│       ├── Users/             # CRUD Usuarios
-│       └── Roles/             # CRUD Roles
-├── Models/                    # Modelos Eloquent
-│   ├── User.php               # Usuario con roles y canales
+│   ├── Auth/
+│   │   ├── Login.php          # Componente de login
+│   │   └── Logout.php         # Componente de logout
+│   ├── Channels/
+│   │   ├── Index.php          # Lista de canales WhatsApp
+│   │   ├── Create.php         # Crear canal
+│   │   └── Edit.php           # Editar canal
+│   ├── Dashboard.php          # Dashboard principal
+│   └── Settings/
+│       ├── Users/
+│       │   ├── Index.php      # Lista de usuarios
+│       │   ├── Create.php     # Crear usuario
+│       │   └── Edit.php       # Editar usuario
+│       └── Roles/
+│           ├── Index.php      # Lista de roles
+│           ├── Create.php     # Crear rol
+│           └── Edit.php       # Editar rol
+├── Models/
+│   ├── User.php               # Usuario con roles, canales y permisos
 │   ├── Role.php               # Rol con permisos
 │   ├── Permission.php         # Permiso individual
 │   ├── Module.php             # Módulo del sistema
 │   └── Channel.php            # Canal WhatsApp
 ├── Providers/                 # Service providers
 └── Services/
-    └── EvolutionApiService.php # Cliente API Evolution
+    └── EvolutionApiService.php # Cliente HTTP para Evolution API
+
+bootstrap/
+└── app.php                    # Registro de middleware 'permission'
 
 resources/
 ├── css/                       # Tailwind CSS source
 ├── js/                        # JavaScript entry points
 └── views/
     ├── layouts/
-    │   ├── app.blade.php      # Layout autenticado (sidebar)
+    │   ├── app.blade.php      # Layout autenticado (sidebar dinámico)
     │   └── guest.blade.php    # Layout público (login)
-    └── livewire/              # Vistas de componentes
+    └── livewire/
         ├── auth/
+        │   ├── login.blade.php
+        │   └── logout.blade.php
         ├── channels/
-        ├── settings/
-        │   ├── users/
-        │   └── roles/
-        └── dashboard.blade.php
+        │   ├── index.blade.php
+        │   ├── create.blade.php
+        │   └── edit.blade.php
+        ├── dashboard.blade.php
+        └── settings/
+            ├── users/
+            │   ├── index.blade.php
+            │   ├── create.blade.php
+            │   └── edit.blade.php
+            └── roles/
+                ├── index.blade.php
+                ├── create.blade.php
+                └── edit.blade.php
 
 routes/
-├── web.php                    # Rutas web (Livewire components)
+├── web.php                    # Rutas web con middleware de permisos
 └── console.php                # Comandos Artisan
 
 database/
-├── migrations/                # Migraciones de esquema
+├── migrations/
+│   ├── create_users_table.php
+│   ├── create_roles_table.php
+│   ├── create_permissions_table.php
+│   ├── create_modules_table.php
+│   ├── create_channels_table.php
+│   ├── create_role_user_table.php
+│   ├── create_permission_role_table.php
+│   └── create_channel_user_table.php
 ├── seeders/
 │   ├── DatabaseSeeder.php
 │   └── RolesAndPermissionsSeeder.php
-└── factories/                 # Factories para testing
+└── factories/
 
 config/
 └── services.php               # Configuración Evolution API
@@ -56,31 +93,55 @@ config/
 ### Componentes Livewire
 - Full-page components con atributo `#[Layout('layouts.xxx')]`
 - Vistas en `resources/views/livewire/` reflejando namespace
-- Usar `#[Rule]` para validación
+- Usar `#[Rule]` para validación inline
 - Usar `#[Title]` para títulos de página
 - Usar `#[On('event')]` para escuchar eventos
 - Usar `$this->dispatch()` para emitir eventos
+- Usar `#[Url]` para parámetros en URL (search, sort, etc.)
+
+### Sistema de Permisos en Componentes
+```php
+// En mount() verificar permisos para acciones
+public bool $canCreate = false;
+public bool $canEdit = false;
+public bool $canDelete = false;
+
+public function mount(): void
+{
+    $user = auth()->user();
+    $isAdmin = $user->hasRole('admin');
+    
+    $this->canCreate = $isAdmin || $user->hasPermission('modulo.crear');
+    $this->canEdit = $isAdmin || $user->hasPermission('modulo.editar');
+    $this->canDelete = $isAdmin || $user->hasPermission('modulo.eliminar');
+}
+```
 
 ### Layouts
-- `layouts.app` - Usuarios autenticados (navegación sidebar)
+- `layouts.app` - Usuarios autenticados (sidebar con menú dinámico según permisos)
 - `layouts.guest` - Usuarios no autenticados (card centrada)
 
-### Rutas
-- Rutas apuntan directamente a componentes Livewire
-- Agrupadas por middleware: `guest` y `auth`
-- Prefijos: `/configuracion/` para settings, `/canales/` para channels
+### Rutas con Permisos
+```php
+Route::middleware('auth')->group(function () {
+    Route::get('/ruta', Componente::class)
+        ->name('nombre.ruta')
+        ->middleware('permission:modulo.accion');
+});
+```
 
 ### Convenciones de Nombres
 - Componentes Livewire: PascalCase (ej: `Dashboard`, `Login`)
 - Vistas: kebab-case (ej: `dashboard.blade.php`)
 - Rutas: kebab-case con nombres descriptivos
 - Modelos: Singular PascalCase (ej: `Channel`, `User`)
+- Permisos: `modulo.accion` (ej: `usuarios.crear`, `roles.editar`)
 
 ### Notificaciones
-- Toast notifications con SweetAlert2
-- Fondo blanco, texto normal
+- Toast notifications con SweetAlert2 (fondo blanco)
 - Dispatch desde PHP: `$this->dispatch('toast', type: 'success', message: 'Mensaje')`
-- Confirmaciones de eliminación con SweetAlert2
+- Confirmaciones de eliminación con SweetAlert2 (fondo blanco)
+- Evento `confirm-delete` para confirmaciones
 
 ### Relaciones de Modelos
 - User belongsToMany Role (pivot: role_user)
@@ -88,3 +149,11 @@ config/
 - Role belongsToMany Permission (pivot: permission_role)
 - Permission belongsTo Module
 - Channel belongsToMany User
+
+### Métodos de Usuario para Permisos
+```php
+$user->hasRole('admin');           // Verificar rol
+$user->hasPermission('roles.ver'); // Verificar permiso
+$user->assignRole($role);          // Asignar rol
+$user->removeRole($role);          // Remover rol
+```

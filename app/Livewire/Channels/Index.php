@@ -26,8 +26,19 @@ class Index extends Component
     public ?string $qrCodeImage = null;
     public ?int $qrChannelId = null;
 
+    public bool $canCreate = false;
+    public bool $canEdit = false;
+    public bool $canDelete = false;
+
     public function mount(): void
     {
+        $user = auth()->user();
+        $isAdmin = $user->hasRole('admin');
+        
+        $this->canCreate = $isAdmin || $user->hasPermission('canales.crear');
+        $this->canEdit = $isAdmin || $user->hasPermission('canales.editar');
+        $this->canDelete = $isAdmin || $user->hasPermission('canales.eliminar');
+
         // Sincronizar instancias de Evolution API al cargar
         $this->syncFromEvolutionApi();
     }
@@ -276,12 +287,22 @@ class Index extends Component
 
     public function confirmDelete(int $id): void
     {
+        if (!$this->canDelete) {
+            $this->dispatch('toast', type: 'error', message: 'No tienes permiso para eliminar canales');
+            return;
+        }
+        
         $this->dispatch('confirm-delete', id: $id, message: 'El canal será eliminado permanentemente');
     }
 
     #[On('deleteConfirmed')]
     public function delete(int $id): void
     {
+        if (!$this->canDelete) {
+            $this->dispatch('toast', type: 'error', message: 'No tienes permiso para eliminar canales');
+            return;
+        }
+
         $channel = Channel::find($id);
 
         if (!$channel) {

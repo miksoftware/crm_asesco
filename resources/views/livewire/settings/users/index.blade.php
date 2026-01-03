@@ -5,6 +5,7 @@
             <h1 class="text-2xl font-bold text-gray-800">Usuarios</h1>
             <p class="text-gray-500 text-sm">Gestiona los usuarios del sistema</p>
         </div>
+        @if($canCreate)
         <a href="{{ route('settings.users.create') }}" 
            class="inline-flex items-center justify-center gap-2 px-4 py-2.5 gradient-bg text-white font-semibold rounded-xl shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 transition-all duration-200">
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -12,6 +13,7 @@
             </svg>
             Nuevo Usuario
         </a>
+        @endif
     </div>
 
     <!-- Table Card -->
@@ -85,9 +87,7 @@
                         <tr class="hover:bg-gray-50 transition-colors">
                             <td class="px-6 py-4">
                                 <div class="flex items-center gap-3">
-                                    <div class="w-10 h-10 rounded-full gradient-bg flex items-center justify-center text-white font-semibold">
-                                        {{ strtoupper(substr($user->name, 0, 1)) }}
-                                    </div>
+                                    <img class="w-10 h-10 rounded-full object-cover" src="{{ $user->profile_photo_url }}" alt="{{ $user->name }}">
                                     <span class="font-medium text-gray-900">{{ $user->name }}</span>
                                 </div>
                             </td>
@@ -108,13 +108,15 @@
                             </td>
                             <td class="px-6 py-4">
                                 <div class="flex items-center justify-end gap-2">
+                                    @if($canEdit)
                                     <a href="{{ route('settings.users.edit', $user) }}" 
                                        class="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="Editar">
                                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
                                         </svg>
                                     </a>
-                                    @if($user->id !== auth()->id())
+                                    @endif
+                                    @if($canDelete && $user->id !== auth()->id())
                                         <button wire:click="confirmDelete({{ $user->id }})"
                                                 class="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Eliminar">
                                             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

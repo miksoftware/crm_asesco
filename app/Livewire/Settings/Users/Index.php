@@ -27,6 +27,20 @@ class Index extends Component
 
     public int $perPage = 10;
 
+    public bool $canCreate = false;
+    public bool $canEdit = false;
+    public bool $canDelete = false;
+
+    public function mount(): void
+    {
+        $user = auth()->user();
+        $isAdmin = $user->hasRole('admin');
+        
+        $this->canCreate = $isAdmin || $user->hasPermission('usuarios.crear');
+        $this->canEdit = $isAdmin || $user->hasPermission('usuarios.editar');
+        $this->canDelete = $isAdmin || $user->hasPermission('usuarios.eliminar');
+    }
+
     public function updatingSearch(): void
     {
         $this->resetPage();
@@ -44,12 +58,22 @@ class Index extends Component
 
     public function confirmDelete(int $id): void
     {
+        if (!$this->canDelete) {
+            $this->dispatch('toast', type: 'error', message: 'No tienes permiso para eliminar usuarios');
+            return;
+        }
+        
         $this->dispatch('confirm-delete', id: $id, message: 'El usuario será eliminado permanentemente');
     }
 
     #[On('deleteConfirmed')]
     public function delete(int $id): void
     {
+        if (!$this->canDelete) {
+            $this->dispatch('toast', type: 'error', message: 'No tienes permiso para eliminar usuarios');
+            return;
+        }
+
         $user = User::find($id);
         
         if (!$user) {
