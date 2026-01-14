@@ -4,6 +4,9 @@
 
 ```
 app/
+├── Console/
+│   └── Commands/
+│       └── SyncModulesAndPermissions.php  # Comando para sincronizar permisos
 ├── Http/
 │   ├── Controllers/           # Controladores tradicionales (uso mínimo)
 │   └── Middleware/
@@ -16,6 +19,11 @@ app/
 │   │   ├── Index.php          # Lista de canales WhatsApp
 │   │   ├── Create.php         # Crear canal
 │   │   └── Edit.php           # Editar canal
+│   ├── Chat/
+│   │   ├── Index.php          # Interfaz principal de chat
+│   │   ├── NotificationBadge.php  # Badge de notificaciones
+│   │   ├── ContactInfo.php    # Panel de información de contacto
+│   │   └── QuickActions.php   # Acciones rápidas del chat
 │   ├── Dashboard.php          # Dashboard principal
 │   └── Settings/
 │       ├── Users/
@@ -31,39 +39,40 @@ app/
 │   ├── Role.php               # Rol con permisos
 │   ├── Permission.php         # Permiso individual
 │   ├── Module.php             # Módulo del sistema
-│   └── Channel.php            # Canal WhatsApp
+│   ├── Channel.php            # Canal WhatsApp
+│   ├── Contact.php            # Contacto de WhatsApp
+│   ├── Conversation.php       # Conversación de chat
+│   ├── Message.php            # Mensaje de chat
+│   ├── Label.php              # Etiqueta para contactos
+│   └── ChatNotification.php   # Notificación de chat
 ├── Providers/                 # Service providers
 └── Services/
-    └── EvolutionApiService.php # Cliente HTTP para Evolution API
+    ├── EvolutionApiService.php # Cliente HTTP para Evolution API
+    └── NotificationService.php # Servicio de notificaciones
 
 bootstrap/
 └── app.php                    # Registro de middleware 'permission'
 
 resources/
-├── css/                       # Tailwind CSS source
-├── js/                        # JavaScript entry points
+├── css/
+│   └── app.css                # Tailwind con @theme para colores custom
+├── js/
+│   ├── app.js                 # Entry point (NO importar Alpine aquí)
+│   └── bootstrap.js           # Axios config
 └── views/
     ├── layouts/
-    │   ├── app.blade.php      # Layout autenticado (sidebar dinámico)
-    │   └── guest.blade.php    # Layout público (login)
+    │   ├── app.blade.php      # Layout autenticado (solo @vite, sin CDN)
+    │   └── guest.blade.php    # Layout público (solo @vite, sin CDN)
     └── livewire/
         ├── auth/
-        │   ├── login.blade.php
-        │   └── logout.blade.php
         ├── channels/
+        ├── chat/
         │   ├── index.blade.php
-        │   ├── create.blade.php
-        │   └── edit.blade.php
+        │   ├── notification-badge.blade.php
+        │   ├── contact-info.blade.php
+        │   └── quick-actions.blade.php
         ├── dashboard.blade.php
         └── settings/
-            ├── users/
-            │   ├── index.blade.php
-            │   ├── create.blade.php
-            │   └── edit.blade.php
-            └── roles/
-                ├── index.blade.php
-                ├── create.blade.php
-                └── edit.blade.php
 
 routes/
 ├── web.php                    # Rutas web con middleware de permisos
@@ -71,14 +80,6 @@ routes/
 
 database/
 ├── migrations/
-│   ├── create_users_table.php
-│   ├── create_roles_table.php
-│   ├── create_permissions_table.php
-│   ├── create_modules_table.php
-│   ├── create_channels_table.php
-│   ├── create_role_user_table.php
-│   ├── create_permission_role_table.php
-│   └── create_channel_user_table.php
 ├── seeders/
 │   ├── DatabaseSeeder.php
 │   └── RolesAndPermissionsSeeder.php
@@ -157,3 +158,41 @@ $user->hasPermission('roles.ver'); // Verificar permiso
 $user->assignRole($role);          // Asignar rol
 $user->removeRole($role);          // Remover rol
 ```
+
+## Creación de Nuevos Módulos
+
+### Checklist al crear un módulo nuevo:
+1. Crear migraciones necesarias
+2. Crear modelos con relaciones
+3. Crear componentes Livewire en `app/Livewire/NombreModulo/`
+4. Crear vistas en `resources/views/livewire/nombre-modulo/`
+5. Agregar rutas en `routes/web.php` con middleware de permisos
+6. **IMPORTANTE**: Agregar módulo en `SyncModulesAndPermissions.php`
+7. Ejecutar `php artisan permissions:sync`
+8. Agregar enlace en sidebar (`layouts/app.blade.php`)
+
+### Agregar módulo con permisos estándar (CRUD):
+```php
+// En app/Console/Commands/SyncModulesAndPermissions.php
+// Agregar al array $standardModules:
+['name' => 'nuevo_modulo', 'display_name' => 'Nuevo Módulo', 'icon' => 'icon-name', 'order' => 9],
+```
+
+### Agregar módulo con permisos personalizados:
+```php
+// En app/Console/Commands/SyncModulesAndPermissions.php
+// Agregar al array $customModules:
+'nuevo_modulo' => [
+    'module' => ['name' => 'nuevo_modulo', 'display_name' => 'Nuevo Módulo', 'icon' => 'icon', 'order' => 9],
+    'permissions' => [
+        ['action' => 'ver', 'display_name' => 'Ver Módulo'],
+        ['action' => 'accion_especial', 'display_name' => 'Acción Especial'],
+    ],
+],
+```
+
+### Después de agregar el módulo:
+```bash
+php artisan permissions:sync
+```
+Los permisos aparecerán automáticamente en la UI de edición de roles.

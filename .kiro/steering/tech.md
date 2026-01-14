@@ -3,14 +3,21 @@
 ## Backend
 - PHP 8.2+
 - Laravel 12.x
-- Livewire 3.x (full-page components)
+- Livewire 3.x (full-page components, incluye Alpine.js internamente)
 - MySQL database (Laragon)
 
 ## Frontend
-- Tailwind CSS 4.x (via CDN con tailwind.config)
-- Alpine.js 3.x (via CDN)
-- SweetAlert2 (notificaciones y confirmaciones)
-- Inter font family (Google Fonts)
+- Tailwind CSS 4.x (via Vite + @tailwindcss/vite plugin)
+- Alpine.js 3.x (incluido en Livewire 3, NO importar por separado)
+- SweetAlert2 (notificaciones y confirmaciones, via CDN)
+- Inter font family (Google Fonts via Bunny)
+
+## IMPORTANTE: Configuración Frontend
+- NO usar CDN de Tailwind (`cdn.tailwindcss.com`)
+- NO usar `tailwind.config = {...}` en JavaScript
+- NO importar Alpine desde npm (Livewire 3 ya lo incluye)
+- Colores y estilos personalizados van en `resources/css/app.css` usando `@theme`
+- Plugins de Alpine se registran en evento `livewire:init`
 
 ## Integraciones
 - Evolution API v2 (WhatsApp)
@@ -50,6 +57,9 @@ php artisan migrate
 # Seeders
 php artisan db:seed
 php artisan db:seed --class=RolesAndPermissionsSeeder
+
+# Sincronizar módulos y permisos (IMPORTANTE al crear nuevos módulos)
+php artisan permissions:sync
 
 # Formateo de código
 ./vendor/bin/pint
@@ -117,19 +127,37 @@ Formato: `modulo.accion`
 Módulos disponibles:
 - dashboard
 - canales
+- chats (permisos especiales: ver, enviar, etiquetas)
 - usuarios
 - roles
 - clientes (pendiente)
 - cobranzas (pendiente)
 - reportes (pendiente)
 
-Acciones:
+Acciones estándar:
 - ver
 - crear
 - editar
 - eliminar
 
-Ejemplos: `dashboard.ver`, `usuarios.crear`, `roles.editar`, `canales.eliminar`
+Ejemplos: `dashboard.ver`, `usuarios.crear`, `roles.editar`, `canales.eliminar`, `chats.enviar`
+
+## Gestión de Módulos y Permisos
+
+### Comando de sincronización
+```bash
+php artisan permissions:sync
+```
+Este comando sincroniza módulos y permisos sin eliminar datos existentes. Asigna automáticamente nuevos permisos al rol admin.
+
+### Al crear un nuevo módulo:
+1. Agregar el módulo en `app/Console/Commands/SyncModulesAndPermissions.php`
+2. Ejecutar `php artisan permissions:sync`
+3. Los permisos aparecerán automáticamente en la UI de roles
+
+### Tipos de módulos:
+- **Estándar**: Permisos CRUD (ver, crear, editar, eliminar)
+- **Personalizados**: Permisos específicos (ej: chats tiene ver, enviar, etiquetas)
 
 ## Evolution API Service
 ```php

@@ -12,7 +12,7 @@ class RolesAndPermissionsSeeder extends Seeder
 {
     public function run(): void
     {
-        // Crear módulos
+        // Crear módulos con permisos estándar (CRUD)
         $modules = [
             ['name' => 'dashboard', 'display_name' => 'Dashboard', 'icon' => 'home', 'order' => 1],
             ['name' => 'canales', 'display_name' => 'Canales', 'icon' => 'chat', 'order' => 2],
@@ -37,6 +37,30 @@ class RolesAndPermissionsSeeder extends Seeder
                     'action' => $actionKey,
                 ]);
             }
+        }
+
+        // Crear módulo de Chats con permisos personalizados
+        $chatsModule = Module::create([
+            'name' => 'chats',
+            'display_name' => 'Chats',
+            'icon' => 'message-circle',
+            'order' => 8,
+        ]);
+
+        // Permisos específicos del módulo de chat
+        $chatPermissions = [
+            ['action' => 'ver', 'display_name' => 'Ver Chats'],
+            ['action' => 'enviar', 'display_name' => 'Enviar Mensajes'],
+            ['action' => 'etiquetas', 'display_name' => 'Gestionar Etiquetas'],
+        ];
+
+        foreach ($chatPermissions as $permData) {
+            Permission::create([
+                'module_id' => $chatsModule->id,
+                'name' => 'chats.' . $permData['action'],
+                'display_name' => $permData['display_name'],
+                'action' => $permData['action'],
+            ]);
         }
 
         // Crear rol de Administrador con todos los permisos

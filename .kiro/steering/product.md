@@ -32,10 +32,11 @@ Aplicación web interna para gestionar cobranzas y servicios de asesoría a clie
 ### Roles y Permisos
 - CRUD de roles con colores personalizados
 - Permisos organizados por módulo y acción
-- Acciones: ver, crear, editar, eliminar
-- Módulos: Dashboard, Canales, Usuarios, Roles, Clientes, Cobranzas, Reportes
+- Acciones estándar: ver, crear, editar, eliminar
+- Módulos dinámicos desde base de datos
 - Rol admin tiene acceso total (no se puede eliminar)
 - Permisos: `roles.ver`, `roles.crear`, `roles.editar`, `roles.eliminar`
+- Sincronización via `php artisan permissions:sync`
 
 ### Canales WhatsApp (Evolution API)
 - Integración con Evolution API v2
@@ -48,6 +49,16 @@ Aplicación web interna para gestionar cobranzas y servicios de asesoría a clie
 - Asignación de usuarios a canales
 - Permisos: `canales.ver`, `canales.crear`, `canales.editar`, `canales.eliminar`
 
+### Chat WhatsApp
+- Interfaz de mensajería integrada con Evolution API
+- Lista de conversaciones con búsqueda y filtros
+- Panel de mensajes con envío en tiempo real
+- Panel de información de contacto editable
+- Sistema de etiquetas para organizar contactos
+- Notificaciones de mensajes nuevos (badge en sidebar y header)
+- Acciones rápidas: marcar como pagado, crear seguimiento
+- Permisos especiales: `chats.ver`, `chats.enviar`, `chats.etiquetas`
+
 ### Sistema de Permisos
 - Middleware `CheckPermission` para proteger rutas
 - Verificación de permisos en componentes Livewire
@@ -55,12 +66,12 @@ Aplicación web interna para gestionar cobranzas y servicios de asesoría a clie
 - Botones de acción condicionales según permisos
 - Usuarios con rol `admin` tienen acceso total
 - Error 403 para accesos no autorizados
+- Comando `php artisan permissions:sync` para sincronizar módulos
 
 ## Módulos Planificados
 - Clientes: Gestión de cartera de clientes
 - Cobranzas: Seguimiento de cobros y pagos
 - Reportes: Informes y estadísticas
-- Chat WhatsApp: Interfaz de mensajería integrada
 
 ## Usuarios Objetivo
 Personal interno y administradores que gestionan operaciones BPO.

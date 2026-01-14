@@ -12,6 +12,7 @@ use App\Livewire\Settings\Roles\Edit as RolesEdit;
 use App\Livewire\Channels\Index as ChannelsIndex;
 use App\Livewire\Channels\Create as ChannelsCreate;
 use App\Livewire\Channels\Edit as ChannelsEdit;
+use App\Livewire\Chat\Index as ChatIndex;
 use App\Livewire\Help\TechnicalManual;
 
 // Guest routes
@@ -28,6 +29,9 @@ Route::middleware('auth')->group(function () {
     Route::get('/canales', ChannelsIndex::class)->name('channels.index')->middleware('permission:canales.ver');
     Route::get('/canales/crear', ChannelsCreate::class)->name('channels.create')->middleware('permission:canales.crear');
     Route::get('/canales/{channel}/editar', ChannelsEdit::class)->name('channels.edit')->middleware('permission:canales.editar');
+
+    // Chat (WhatsApp)
+    Route::get('/chat', ChatIndex::class)->name('chat.index')->middleware('permission:chats.ver');
 
     // Settings - Users
     Route::get('/configuracion/usuarios', UsersIndex::class)->name('settings.users.index')->middleware('permission:usuarios.ver');
