@@ -55,16 +55,31 @@ class MessageService
         ]);
 
         try {
+            // Use remote_jid if available (for LID contacts), otherwise use phone number
+            $recipient = $contact->remote_jid ?? $phoneNumber;
+            
+            // If remote_jid doesn't contain @, it's a phone number, format it
+            if ($recipient && !str_contains($recipient, '@')) {
+                $recipient = $this->normalizePhoneNumber($recipient);
+            }
+
+            Log::info('Sending message via Evolution API', [
+                'channel' => $channel->instance_name,
+                'recipient' => $recipient,
+                'phone_number' => $phoneNumber,
+                'remote_jid' => $contact->remote_jid,
+            ]);
+
             // Send via Evolution API
             $response = $this->evolutionApi->sendTextMessage(
                 $channel->instance_name,
-                $phoneNumber,
+                $recipient,
                 $text
             );
 
             Log::info('Evolution API sendTextMessage response', [
                 'channel' => $channel->instance_name,
-                'phone' => $phoneNumber,
+                'recipient' => $recipient,
                 'response' => $response,
             ]);
 
@@ -123,22 +138,35 @@ class MessageService
         $mediaUrl = $this->extractMediaUrl($data['message'] ?? [], $messageType);
         $mediaMimeType = $this->extractMediaMimeType($data['message'] ?? [], $messageType);
         
-        // Find or create contact
-        $contact = Contact::firstOrCreate(
-            [
+        // Find or create contact - use remote_jid as unique identifier
+        $contact = Contact::where('channel_id', $channel->id)
+            ->where(function ($query) use ($phoneNumber, $remoteJid) {
+                $query->where('phone_number', $phoneNumber)
+                    ->orWhere('remote_jid', $remoteJid);
+            })
+            ->first();
+
+        if (!$contact) {
+            $contact = Contact::create([
                 'channel_id' => $channel->id,
                 'phone_number' => $phoneNumber,
-            ],
-            [
+                'remote_jid' => $remoteJid,
                 'push_name' => $pushName,
                 'labels' => [],
                 'metadata' => [],
-            ]
-        );
-        
-        // Update push_name if changed
-        if ($pushName && $contact->push_name !== $pushName) {
-            $contact->update(['push_name' => $pushName]);
+            ]);
+        } else {
+            // Update remote_jid and push_name if needed
+            $updates = [];
+            if (!$contact->remote_jid && $remoteJid) {
+                $updates['remote_jid'] = $remoteJid;
+            }
+            if ($pushName && $contact->push_name !== $pushName) {
+                $updates['push_name'] = $pushName;
+            }
+            if (!empty($updates)) {
+                $contact->update($updates);
+            }
         }
         
         // Check for duplicate message

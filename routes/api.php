@@ -30,3 +30,15 @@ use Illuminate\Support\Facades\Route;
  */
 Route::post('/webhook/evolution', [WebhookController::class, 'handleEvolutionWebhook'])
     ->name('webhook.evolution');
+
+/**
+ * Test endpoint to verify webhook is accessible
+ */
+Route::get('/webhook/test', function () {
+    return response()->json([
+        'status' => 'ok',
+        'message' => 'Webhook endpoint is accessible',
+        'timestamp' => now()->toIso8601String(),
+        'app_url' => config('app.url'),
+    ]);
+});

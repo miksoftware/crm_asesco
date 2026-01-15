@@ -13,6 +13,7 @@ class Contact extends Model
     protected $fillable = [
         'channel_id',
         'phone_number',
+        'remote_jid',
         'name',
         'push_name',
         'profile_picture',
