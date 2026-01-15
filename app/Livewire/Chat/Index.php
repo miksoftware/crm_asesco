@@ -214,12 +214,20 @@ class Index extends Component
             $this->messageText = '';
 
             if ($message->status === 'failed') {
-                $this->dispatch('toast', type: 'error', message: 'Error al enviar el mensaje');
+                // Get more details from logs
+                $this->dispatch('toast', type: 'error', message: 'Error al enviar el mensaje. Verifica que el canal esté conectado.');
+            } else {
+                $this->dispatch('toast', type: 'success', message: 'Mensaje enviado');
             }
 
             // Refresh messages
             unset($this->messages);
         } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::error('Error sending message', [
+                'error' => $e->getMessage(),
+                'channel_id' => $this->selectedChannelId,
+                'contact_id' => $this->selectedContactId,
+            ]);
             $this->dispatch('toast', type: 'error', message: 'Error: ' . $e->getMessage());
         }
     }

@@ -23,6 +23,11 @@ class MessageService
     {
         $channel = Channel::findOrFail($channelId);
         
+        // Verify channel is connected
+        if ($channel->status !== 'connected') {
+            throw new \Exception("El canal '{$channel->name}' no está conectado. Estado actual: {$channel->status}");
+        }
+        
         // Find or create contact
         $contact = Contact::firstOrCreate(
             [
@@ -57,6 +62,12 @@ class MessageService
                 $text
             );
 
+            Log::info('Evolution API sendTextMessage response', [
+                'channel' => $channel->instance_name,
+                'phone' => $phoneNumber,
+                'response' => $response,
+            ]);
+
             if ($response['success']) {
                 $messageId = $response['data']['key']['id'] ?? null;
                 $message->update([
@@ -64,12 +75,15 @@ class MessageService
                     'status' => 'sent',
                 ]);
             } else {
+                $errorMsg = $response['error'] ?? 'Error desconocido de Evolution API';
                 $message->update(['status' => 'failed']);
                 Log::error('Failed to send message via Evolution API', [
                     'channel_id' => $channelId,
                     'phone_number' => $phoneNumber,
-                    'error' => $response['error'] ?? 'Unknown error',
+                    'error' => $errorMsg,
+                    'full_response' => $response,
                 ]);
+                throw new \Exception($errorMsg);
             }
         } catch (\Exception $e) {
             $message->update(['status' => 'failed']);
@@ -78,6 +92,7 @@ class MessageService
                 'phone_number' => $phoneNumber,
                 'exception' => $e->getMessage(),
             ]);
+            throw $e;
         }
 
         return $message->fresh();
