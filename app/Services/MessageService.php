@@ -138,6 +138,14 @@ class MessageService
         $mediaUrl = $this->extractMediaUrl($data['message'] ?? [], $messageType);
         $mediaMimeType = $this->extractMediaMimeType($data['message'] ?? [], $messageType);
         
+        // For media messages, try to get base64 and save locally
+        if (in_array($messageType, ['image', 'video', 'audio', 'document']) && $messageId && $remoteJid) {
+            $localMediaUrl = $this->downloadAndSaveMedia($instanceName, $messageId, $remoteJid, $messageType, $mediaMimeType);
+            if ($localMediaUrl) {
+                $mediaUrl = $localMediaUrl;
+            }
+        }
+        
         // Find or create contact - use remote_jid as unique identifier
         $contact = Contact::where('channel_id', $channel->id)
             ->where(function ($query) use ($phoneNumber, $remoteJid) {
@@ -178,6 +186,16 @@ class MessageService
             return $existingMessage;
         }
         
+        // Parse timestamp - Evolution API sends Unix timestamp in UTC
+        // Convert to app timezone (America/Bogota)
+        $sentAt = now();
+        if (isset($data['messageTimestamp'])) {
+            $sentAt = \Carbon\Carbon::createFromTimestamp(
+                $data['messageTimestamp'], 
+                'UTC'
+            )->setTimezone(config('app.timezone'));
+        }
+
         // Create message
         $message = Message::create([
             'contact_id' => $contact->id,
@@ -191,12 +209,88 @@ class MessageService
             'status' => 'delivered',
             'is_read' => false,
             'metadata' => $data,
-            'sent_at' => isset($data['messageTimestamp']) 
-                ? \Carbon\Carbon::createFromTimestamp($data['messageTimestamp']) 
-                : now(),
+            'sent_at' => $sentAt,
         ]);
         
         return $message;
+    }
+
+    /**
+     * Download media from Evolution API and save locally.
+     */
+    private function downloadAndSaveMedia(string $instanceName, string $messageId, string $remoteJid, string $type, ?string $mimeType): ?string
+    {
+        try {
+            $result = $this->evolutionApi->getMediaBase64($instanceName, $messageId, $remoteJid);
+            
+            if (!$result['success'] || empty($result['data']['base64'])) {
+                Log::warning('Failed to download media from Evolution API', [
+                    'instance' => $instanceName,
+                    'messageId' => $messageId,
+                    'error' => $result['error'] ?? 'No base64 data',
+                ]);
+                return null;
+            }
+            
+            $base64 = $result['data']['base64'];
+            $mimeType = $result['data']['mimetype'] ?? $mimeType ?? 'application/octet-stream';
+            
+            // Determine file extension from mime type
+            $extension = $this->getExtensionFromMimeType($mimeType, $type);
+            
+            // Generate unique filename
+            $filename = $type . '_' . $messageId . '.' . $extension;
+            $path = 'chat-media/' . date('Y/m') . '/' . $filename;
+            
+            // Decode and save
+            $content = base64_decode($base64);
+            \Illuminate\Support\Facades\Storage::disk('public')->put($path, $content);
+            
+            return \Illuminate\Support\Facades\Storage::disk('public')->url($path);
+        } catch (\Exception $e) {
+            Log::error('Exception downloading media', [
+                'instance' => $instanceName,
+                'messageId' => $messageId,
+                'exception' => $e->getMessage(),
+            ]);
+            return null;
+        }
+    }
+
+    /**
+     * Get file extension from MIME type.
+     */
+    private function getExtensionFromMimeType(string $mimeType, string $type): string
+    {
+        $map = [
+            'image/jpeg' => 'jpg',
+            'image/png' => 'png',
+            'image/gif' => 'gif',
+            'image/webp' => 'webp',
+            'video/mp4' => 'mp4',
+            'video/3gpp' => '3gp',
+            'audio/ogg' => 'ogg',
+            'audio/mpeg' => 'mp3',
+            'audio/mp4' => 'm4a',
+            'application/pdf' => 'pdf',
+            'application/msword' => 'doc',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document' => 'docx',
+            'application/vnd.ms-excel' => 'xls',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' => 'xlsx',
+        ];
+        
+        if (isset($map[$mimeType])) {
+            return $map[$mimeType];
+        }
+        
+        // Default extensions by type
+        return match ($type) {
+            'image' => 'jpg',
+            'video' => 'mp4',
+            'audio' => 'ogg',
+            'document' => 'bin',
+            default => 'bin',
+        };
     }
 
     /**

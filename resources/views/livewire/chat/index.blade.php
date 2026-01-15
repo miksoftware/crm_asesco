@@ -235,10 +235,23 @@
                                         <p class="text-sm whitespace-pre-wrap break-words">{{ $message->content }}</p>
                                     @elseif($message->type === 'image')
                                         @if($message->media_url)
-                                            <img src="{{ $message->media_url }}" alt="Imagen" class="max-w-full rounded-lg mb-1">
+                                            <a href="{{ $message->media_url }}" target="_blank" class="block">
+                                                <img src="{{ $message->media_url }}" 
+                                                     alt="Imagen" 
+                                                     class="max-w-full max-h-64 rounded-lg mb-1 cursor-pointer hover:opacity-90 transition-opacity"
+                                                     loading="lazy"
+                                                     onerror="this.onerror=null; this.parentElement.innerHTML='<div class=\'flex items-center gap-2 p-3 bg-gray-100 rounded-lg\'><svg class=\'w-8 h-8 text-gray-400\' fill=\'none\' stroke=\'currentColor\' viewBox=\'0 0 24 24\'><path stroke-linecap=\'round\' stroke-linejoin=\'round\' stroke-width=\'2\' d=\'M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z\'/></svg><span class=\'text-sm text-gray-500\'>Imagen no disponible</span></div>';">
+                                            </a>
+                                        @else
+                                            <div class="flex items-center gap-2 p-3 bg-gray-100 rounded-lg">
+                                                <svg class="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                                                </svg>
+                                                <span class="text-sm {{ $message->direction === 'outgoing' ? 'text-green-100' : 'text-gray-500' }}">Imagen</span>
+                                            </div>
                                         @endif
                                         @if($message->content)
-                                            <p class="text-sm">{{ $message->content }}</p>
+                                            <p class="text-sm mt-1">{{ $message->content }}</p>
                                         @endif
                                     @elseif($message->type === 'document')
                                         <div class="flex items-center gap-2">

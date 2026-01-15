@@ -198,6 +198,24 @@ class EvolutionApiService
         return $this->handleResponse($response);
     }
 
+    /**
+     * Get media (image, audio, video, document) as base64 from Evolution API.
+     */
+    public function getMediaBase64(string $instanceName, string $messageId, string $remoteJid): array
+    {
+        $response = $this->request()->post("/chat/getBase64FromMediaMessage/{$instanceName}", [
+            'message' => [
+                'key' => [
+                    'id' => $messageId,
+                    'remoteJid' => $remoteJid,
+                ],
+            ],
+            'convertToMp4' => false,
+        ]);
+
+        return $this->handleResponse($response);
+    }
+
     protected function handleResponse(Response $response): array
     {
         if ($response->successful()) {
