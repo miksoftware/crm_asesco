@@ -1,4 +1,4 @@
-<div class="h-[calc(100vh-4rem)] flex flex-col">
+<div class="h-[calc(100vh-8rem)] flex flex-col">
     @if($this->channels->isEmpty())
         <!-- No channels assigned -->
         <div class="flex-1 flex items-center justify-center bg-gray-50">
@@ -174,13 +174,15 @@
                          x-data="{ 
                              isLoadingMore: false,
                              lastScrollHeight: 0,
+                             userScrolledUp: false,
+                             lastMessageCount: @js(count($this->messages)),
                              scrollToBottom() {
                                  this.$nextTick(() => {
                                      this.$el.scrollTop = this.$el.scrollHeight;
+                                     this.userScrolledUp = false;
                                  });
                              },
                              preserveScrollPosition() {
-                                 // After loading more messages, maintain scroll position
                                  this.$nextTick(() => {
                                      const newScrollHeight = this.$el.scrollHeight;
                                      const scrollDiff = newScrollHeight - this.lastScrollHeight;
@@ -188,7 +190,9 @@
                                  });
                              },
                              handleScroll() {
-                                 // Infinite scroll: load more when scrolled near top
+                                 const isNearBottom = (this.$el.scrollHeight - this.$el.scrollTop - this.$el.clientHeight) < 100;
+                                 this.userScrolledUp = !isNearBottom;
+                                 
                                  if (this.$el.scrollTop < 100 && !this.isLoadingMore && @js($hasMoreMessages)) {
                                      this.isLoadingMore = true;
                                      this.lastScrollHeight = this.$el.scrollHeight;
@@ -197,10 +201,18 @@
                                          this.isLoadingMore = false;
                                      });
                                  }
+                             },
+                             checkNewMessages() {
+                                 const currentCount = @js(count($this->messages));
+                                 if (currentCount > this.lastMessageCount && !this.userScrolledUp) {
+                                     this.scrollToBottom();
+                                 }
+                                 this.lastMessageCount = currentCount;
                              }
                          }"
                          x-init="scrollToBottom()"
                          @scroll.debounce.100ms="handleScroll()"
+                         x-effect="checkNewMessages()"
                          wire:poll.visible.5s>
                         
                         <!-- Load More Indicator -->

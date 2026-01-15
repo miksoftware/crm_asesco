@@ -53,168 +53,210 @@
     </div>
 
     <!-- Promise Modal -->
-    @if($showPromiseModal)
-        <div class="fixed inset-0 z-50 overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
-            <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
-                <!-- Background overlay -->
-                <div class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" wire:click="closePromiseModal"></div>
+    @teleport('body')
+        <div x-data="{ show: @entangle('showPromiseModal') }" 
+             x-show="show" 
+             x-cloak
+             class="fixed inset-0 z-50 overflow-y-auto" 
+             aria-labelledby="modal-title" 
+             role="dialog" 
+             aria-modal="true">
+            <div class="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:p-0">
+                <div class="fixed inset-0 bg-black/30 backdrop-blur-sm transition-opacity" 
+                     x-show="show"
+                     x-transition:enter="ease-out duration-300"
+                     x-transition:enter-start="opacity-0"
+                     x-transition:enter-end="opacity-100"
+                     x-transition:leave="ease-in duration-200"
+                     x-transition:leave-start="opacity-100"
+                     x-transition:leave-end="opacity-0"
+                     wire:click="closePromiseModal"></div>
 
-                <!-- Modal panel -->
-                <div class="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full">
+                <div class="relative bg-white rounded-2xl shadow-xl transform transition-all sm:max-w-md w-full p-6"
+                     x-show="show"
+                     x-transition:enter="ease-out duration-300"
+                     x-transition:enter-start="opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95"
+                     x-transition:enter-end="opacity-100 translate-y-0 sm:scale-100"
+                     x-transition:leave="ease-in duration-200"
+                     x-transition:leave-start="opacity-100 translate-y-0 sm:scale-100"
+                     x-transition:leave-end="opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95">
+                    
                     <form wire:submit="registerPromise">
-                        <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
-                            <div class="sm:flex sm:items-start">
-                                <div class="mx-auto flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full bg-yellow-100 sm:mx-0 sm:h-10 sm:w-10">
-                                    <svg class="h-6 w-6 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/>
-                                    </svg>
-                                </div>
-                                <div class="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left flex-1">
-                                    <h3 class="text-lg leading-6 font-medium text-gray-900" id="modal-title">
-                                        Registrar Promesa de Pago
-                                    </h3>
-                                    <div class="mt-4 space-y-4">
-                                        <!-- Promise Date -->
-                                        <div>
-                                            <label for="promiseDate" class="block text-sm font-medium text-gray-700">
-                                                Fecha prometida <span class="text-red-500">*</span>
-                                            </label>
-                                            <input type="date" 
-                                                   id="promiseDate"
-                                                   wire:model="promiseDate"
-                                                   min="{{ date('Y-m-d') }}"
-                                                   class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm">
-                                            @error('promiseDate')
-                                                <p class="mt-1 text-sm text-red-600">{{ $message }}</p>
-                                            @enderror
-                                        </div>
+                        <div class="text-center mb-4">
+                            <div class="w-16 h-16 rounded-full bg-yellow-100 flex items-center justify-center mx-auto mb-4">
+                                <svg class="w-8 h-8 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/>
+                                </svg>
+                            </div>
+                            <h3 class="text-lg font-semibold text-gray-900">Registrar Promesa de Pago</h3>
+                            <p class="text-sm text-gray-500">{{ $contact->display_name }}</p>
+                        </div>
 
-                                        <!-- Promise Amount -->
-                                        <div>
-                                            <label for="promiseAmount" class="block text-sm font-medium text-gray-700">
-                                                Monto prometido <span class="text-red-500">*</span>
-                                            </label>
-                                            <div class="mt-1 relative rounded-md shadow-sm">
-                                                <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                                                    <span class="text-gray-500 sm:text-sm">$</span>
-                                                </div>
-                                                <input type="number" 
-                                                       id="promiseAmount"
-                                                       wire:model="promiseAmount"
-                                                       step="0.01"
-                                                       min="0.01"
-                                                       placeholder="0.00"
-                                                       class="block w-full pl-7 pr-3 border border-gray-300 rounded-md shadow-sm py-2 focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm">
-                                            </div>
-                                            @error('promiseAmount')
-                                                <p class="mt-1 text-sm text-red-600">{{ $message }}</p>
-                                            @enderror
-                                        </div>
+                        <div class="space-y-4 text-left">
+                            <!-- Promise Date -->
+                            <div>
+                                <label for="promiseDate" class="block text-sm font-medium text-gray-700 mb-1">
+                                    Fecha prometida <span class="text-red-500">*</span>
+                                </label>
+                                <input type="date" 
+                                       id="promiseDate"
+                                       wire:model="promiseDate"
+                                       min="{{ date('Y-m-d') }}"
+                                       class="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 text-sm">
+                                @error('promiseDate')
+                                    <p class="mt-1 text-sm text-red-600">{{ $message }}</p>
+                                @enderror
+                            </div>
 
-                                        <!-- Notes -->
-                                        <div>
-                                            <label for="promiseNotes" class="block text-sm font-medium text-gray-700">
-                                                Notas (opcional)
-                                            </label>
-                                            <textarea id="promiseNotes"
-                                                      wire:model="promiseNotes"
-                                                      rows="2"
-                                                      class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm"
-                                                      placeholder="Agregar notas adicionales..."></textarea>
-                                        </div>
+                            <!-- Promise Amount -->
+                            <div>
+                                <label for="promiseAmount" class="block text-sm font-medium text-gray-700 mb-1">
+                                    Monto prometido <span class="text-red-500">*</span>
+                                </label>
+                                <div class="relative">
+                                    <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                                        <span class="text-gray-500 text-sm">$</span>
                                     </div>
+                                    <input type="number" 
+                                           id="promiseAmount"
+                                           wire:model="promiseAmount"
+                                           step="0.01"
+                                           min="0.01"
+                                           placeholder="0.00"
+                                           class="w-full pl-8 pr-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 text-sm">
                                 </div>
+                                @error('promiseAmount')
+                                    <p class="mt-1 text-sm text-red-600">{{ $message }}</p>
+                                @enderror
+                            </div>
+
+                            <!-- Notes -->
+                            <div>
+                                <label for="promiseNotes" class="block text-sm font-medium text-gray-700 mb-1">
+                                    Notas (opcional)
+                                </label>
+                                <textarea id="promiseNotes"
+                                          wire:model="promiseNotes"
+                                          rows="2"
+                                          class="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 text-sm resize-none"
+                                          placeholder="Agregar notas adicionales..."></textarea>
                             </div>
                         </div>
-                        <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+
+                        <div class="flex gap-3 mt-6">
+                            <button type="button"
+                                    wire:click="closePromiseModal"
+                                    class="flex-1 px-4 py-2.5 border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50 transition-colors font-medium">
+                                Cancelar
+                            </button>
                             <button type="submit"
                                     wire:loading.attr="disabled"
                                     wire:target="registerPromise"
-                                    class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-yellow-600 text-base font-medium text-white hover:bg-yellow-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-yellow-500 sm:ml-3 sm:w-auto sm:text-sm disabled:opacity-50">
+                                    class="flex-1 px-4 py-2.5 bg-yellow-500 text-white rounded-xl hover:bg-yellow-600 transition-colors font-medium disabled:opacity-50 flex items-center justify-center gap-2">
+                                <svg wire:loading wire:target="registerPromise" class="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                                </svg>
                                 <span wire:loading.remove wire:target="registerPromise">Registrar</span>
                                 <span wire:loading wire:target="registerPromise">Guardando...</span>
                             </button>
-                            <button type="button"
-                                    wire:click="closePromiseModal"
-                                    class="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm">
-                                Cancelar
-                            </button>
                         </div>
                     </form>
                 </div>
             </div>
         </div>
-    @endif
+    @endteleport
 
     <!-- Follow-up Modal -->
-    @if($showFollowUpModal)
-        <div class="fixed inset-0 z-50 overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
-            <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
-                <!-- Background overlay -->
-                <div class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" wire:click="closeFollowUpModal"></div>
+    @teleport('body')
+        <div x-data="{ show: @entangle('showFollowUpModal') }" 
+             x-show="show" 
+             x-cloak
+             class="fixed inset-0 z-50 overflow-y-auto" 
+             aria-labelledby="modal-title" 
+             role="dialog" 
+             aria-modal="true">
+            <div class="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:p-0">
+                <div class="fixed inset-0 bg-black/30 backdrop-blur-sm transition-opacity" 
+                     x-show="show"
+                     x-transition:enter="ease-out duration-300"
+                     x-transition:enter-start="opacity-0"
+                     x-transition:enter-end="opacity-100"
+                     x-transition:leave="ease-in duration-200"
+                     x-transition:leave-start="opacity-100"
+                     x-transition:leave-end="opacity-0"
+                     wire:click="closeFollowUpModal"></div>
 
-                <!-- Modal panel -->
-                <div class="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full">
+                <div class="relative bg-white rounded-2xl shadow-xl transform transition-all sm:max-w-md w-full p-6"
+                     x-show="show"
+                     x-transition:enter="ease-out duration-300"
+                     x-transition:enter-start="opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95"
+                     x-transition:enter-end="opacity-100 translate-y-0 sm:scale-100"
+                     x-transition:leave="ease-in duration-200"
+                     x-transition:leave-start="opacity-100 translate-y-0 sm:scale-100"
+                     x-transition:leave-end="opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95">
+                    
                     <form wire:submit="scheduleFollowUp">
-                        <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
-                            <div class="sm:flex sm:items-start">
-                                <div class="mx-auto flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full bg-blue-100 sm:mx-0 sm:h-10 sm:w-10">
-                                    <svg class="h-6 w-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
-                                    </svg>
-                                </div>
-                                <div class="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left flex-1">
-                                    <h3 class="text-lg leading-6 font-medium text-gray-900" id="modal-title">
-                                        Programar Seguimiento
-                                    </h3>
-                                    <div class="mt-4 space-y-4">
-                                        <!-- Follow-up Date -->
-                                        <div>
-                                            <label for="followUpDate" class="block text-sm font-medium text-gray-700">
-                                                Fecha y hora <span class="text-red-500">*</span>
-                                            </label>
-                                            <input type="datetime-local" 
-                                                   id="followUpDate"
-                                                   wire:model="followUpDate"
-                                                   min="{{ date('Y-m-d\TH:i') }}"
-                                                   class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm">
-                                            @error('followUpDate')
-                                                <p class="mt-1 text-sm text-red-600">{{ $message }}</p>
-                                            @enderror
-                                        </div>
+                        <div class="text-center mb-4">
+                            <div class="w-16 h-16 rounded-full bg-blue-100 flex items-center justify-center mx-auto mb-4">
+                                <svg class="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                                </svg>
+                            </div>
+                            <h3 class="text-lg font-semibold text-gray-900">Programar Seguimiento</h3>
+                            <p class="text-sm text-gray-500">{{ $contact->display_name }}</p>
+                        </div>
 
-                                        <!-- Note -->
-                                        <div>
-                                            <label for="followUpNote" class="block text-sm font-medium text-gray-700">
-                                                Nota (opcional)
-                                            </label>
-                                            <textarea id="followUpNote"
-                                                      wire:model="followUpNote"
-                                                      rows="3"
-                                                      class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm"
-                                                      placeholder="Agregar nota para el seguimiento..."></textarea>
-                                        </div>
-                                    </div>
-                                </div>
+                        <div class="space-y-4 text-left">
+                            <!-- Follow-up Date -->
+                            <div>
+                                <label for="followUpDate" class="block text-sm font-medium text-gray-700 mb-1">
+                                    Fecha y hora <span class="text-red-500">*</span>
+                                </label>
+                                <input type="datetime-local" 
+                                       id="followUpDate"
+                                       wire:model="followUpDate"
+                                       min="{{ date('Y-m-d\TH:i') }}"
+                                       class="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm">
+                                @error('followUpDate')
+                                    <p class="mt-1 text-sm text-red-600">{{ $message }}</p>
+                                @enderror
+                            </div>
+
+                            <!-- Note -->
+                            <div>
+                                <label for="followUpNote" class="block text-sm font-medium text-gray-700 mb-1">
+                                    Nota (opcional)
+                                </label>
+                                <textarea id="followUpNote"
+                                          wire:model="followUpNote"
+                                          rows="3"
+                                          class="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm resize-none"
+                                          placeholder="Agregar nota para el seguimiento..."></textarea>
                             </div>
                         </div>
-                        <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+
+                        <div class="flex gap-3 mt-6">
+                            <button type="button"
+                                    wire:click="closeFollowUpModal"
+                                    class="flex-1 px-4 py-2.5 border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50 transition-colors font-medium">
+                                Cancelar
+                            </button>
                             <button type="submit"
                                     wire:loading.attr="disabled"
                                     wire:target="scheduleFollowUp"
-                                    class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-base font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:ml-3 sm:w-auto sm:text-sm disabled:opacity-50">
+                                    class="flex-1 px-4 py-2.5 bg-blue-500 text-white rounded-xl hover:bg-blue-600 transition-colors font-medium disabled:opacity-50 flex items-center justify-center gap-2">
+                                <svg wire:loading wire:target="scheduleFollowUp" class="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                                </svg>
                                 <span wire:loading.remove wire:target="scheduleFollowUp">Programar</span>
                                 <span wire:loading wire:target="scheduleFollowUp">Guardando...</span>
-                            </button>
-                            <button type="button"
-                                    wire:click="closeFollowUpModal"
-                                    class="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm">
-                                Cancelar
                             </button>
                         </div>
                     </form>
                 </div>
             </div>
         </div>
-    @endif
+    @endteleport
 </div>

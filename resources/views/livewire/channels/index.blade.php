@@ -185,7 +185,7 @@
     @if($qrCodeModal)
         <div class="fixed inset-0 z-50 overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
             <div class="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:p-0">
-                <div class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" wire:click="closeQrModal"></div>
+                <div class="fixed inset-0 bg-black/30 backdrop-blur-sm transition-opacity" wire:click="closeQrModal"></div>
 
                 <div class="relative bg-white rounded-2xl shadow-xl transform transition-all sm:max-w-md w-full p-6">
                     <div class="text-center">
