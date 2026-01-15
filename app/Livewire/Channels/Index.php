@@ -224,6 +224,31 @@ class Index extends Component
                 }
             }
         }
+
+        // Configurar webhook automáticamente para recibir mensajes
+        $this->setupWebhook($channel, $api);
+    }
+
+    /**
+     * Configure webhook in Evolution API to receive messages.
+     */
+    protected function setupWebhook(Channel $channel, EvolutionApiService $api): void
+    {
+        $webhookUrl = config('app.url') . '/api/webhook/evolution';
+        
+        $result = $api->setWebhook($channel->instance_name, $webhookUrl);
+        
+        if ($result['success']) {
+            \Illuminate\Support\Facades\Log::info("Webhook configured for channel {$channel->name}", [
+                'channel_id' => $channel->id,
+                'webhook_url' => $webhookUrl,
+            ]);
+        } else {
+            \Illuminate\Support\Facades\Log::warning("Failed to configure webhook for channel {$channel->name}", [
+                'channel_id' => $channel->id,
+                'error' => $result['error'] ?? 'Unknown error',
+            ]);
+        }
     }
 
     public function disconnect(int $id): void

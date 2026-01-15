@@ -64,14 +64,22 @@ class Index extends Component
     {
         $user = auth()->user();
 
+        // Base query: only active and connected channels
+        $baseConditions = function ($query) {
+            $query->where('is_active', true)
+                  ->where('status', 'connected');
+        };
+
         if ($user->hasRole('admin')) {
             return Channel::where('is_active', true)
+                ->where('status', 'connected')
                 ->orderBy('name')
                 ->get();
         }
 
         return $user->channels()
             ->where('is_active', true)
+            ->where('status', 'connected')
             ->orderBy('name')
             ->get();
     }

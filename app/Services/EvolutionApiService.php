@@ -113,6 +113,91 @@ class EvolutionApiService
         return $this->handleResponse($response);
     }
 
+    /**
+     * Configure webhook for an instance to receive messages.
+     */
+    public function setWebhook(string $instanceName, ?string $webhookUrl = null): array
+    {
+        $url = $webhookUrl ?? url('/api/webhook/evolution');
+
+        $response = $this->request()->post("/webhook/set/{$instanceName}", [
+            'webhook' => [
+                'enabled' => true,
+                'url' => $url,
+                'webhookByEvents' => false,
+                'webhookBase64' => false,
+                'events' => [
+                    'MESSAGES_UPSERT',
+                    'MESSAGES_UPDATE',
+                    'CONNECTION_UPDATE',
+                    'SEND_MESSAGE',
+                ],
+            ],
+        ]);
+
+        return $this->handleResponse($response);
+    }
+
+    /**
+     * Get current webhook configuration for an instance.
+     */
+    public function getWebhook(string $instanceName): array
+    {
+        $response = $this->request()->get("/webhook/find/{$instanceName}");
+
+        return $this->handleResponse($response);
+    }
+
+    /**
+     * Fetch chat messages from Evolution API for an instance.
+     */
+    public function fetchMessages(string $instanceName, string $remoteJid, int $count = 50): array
+    {
+        $response = $this->request()->post("/chat/fetchMessages/{$instanceName}", [
+            'where' => [
+                'key' => [
+                    'remoteJid' => $remoteJid,
+                ],
+            ],
+            'limit' => $count,
+        ]);
+
+        return $this->handleResponse($response);
+    }
+
+    /**
+     * Fetch all chats/contacts from Evolution API for an instance.
+     */
+    public function fetchChats(string $instanceName): array
+    {
+        $response = $this->request()->post("/chat/findChats/{$instanceName}", []);
+
+        return $this->handleResponse($response);
+    }
+
+    /**
+     * Fetch contacts from Evolution API for an instance.
+     */
+    public function fetchContacts(string $instanceName): array
+    {
+        $response = $this->request()->post("/chat/findContacts/{$instanceName}", []);
+
+        return $this->handleResponse($response);
+    }
+
+    /**
+     * Fetch messages from Evolution API - all messages without filter.
+     */
+    public function fetchAllMessages(string $instanceName, int $page = 1, int $limit = 100): array
+    {
+        $response = $this->request()->post("/chat/findMessages/{$instanceName}", [
+            'page' => $page,
+            'offset' => $limit,
+        ]);
+
+        return $this->handleResponse($response);
+    }
+
     protected function handleResponse(Response $response): array
     {
         if ($response->successful()) {
