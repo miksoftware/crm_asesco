@@ -88,11 +88,6 @@
                 @endif
 
                 @if($isAdmin || ($user && $user->hasPermission('chats.ver')))
-                @php
-                    $chatUnreadCount = \App\Models\ChatNotification::where('user_id', $user->id)
-                        ->where('is_read', false)
-                        ->count();
-                @endphp
                 <a href="{{ route('chat.index') }}" 
                    class="flex items-center px-3 py-3 rounded-lg {{ str_starts_with($currentRoute, 'chat.') ? 'bg-gradient-to-r from-primary-500/20 to-secondary-500/20 text-white border-l-4 border-primary-500' : 'text-gray-300 hover:bg-gray-700/50 hover:text-white' }} transition-all group"
                    :class="sidebarOpen ? 'space-x-3' : 'justify-center'"
@@ -101,19 +96,10 @@
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
                         </svg>
-                        @if($chatUnreadCount > 0)
-                            <span class="absolute -top-2 -right-2 flex items-center justify-center min-w-[16px] h-4 px-1 text-[10px] font-bold text-white bg-red-500 rounded-full">
-                                {{ $chatUnreadCount > 99 ? '99+' : $chatUnreadCount }}
-                            </span>
-                        @endif
+                        <livewire:chat.sidebar-badge />
                     </div>
                     <span x-show="sidebarOpen" x-cloak class="flex items-center gap-2">
                         Chat
-                        @if($chatUnreadCount > 0)
-                            <span class="px-1.5 py-0.5 text-[10px] font-bold text-white bg-red-500 rounded-full">
-                                {{ $chatUnreadCount > 99 ? '99+' : $chatUnreadCount }}
-                            </span>
-                        @endif
                     </span>
                 </a>
                 @endif

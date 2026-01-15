@@ -1,4 +1,6 @@
-<div class="relative" x-data="{ open: @entangle('showDropdown') }">
+<div class="relative" 
+     x-data="{ open: @entangle('showDropdown') }"
+     wire:poll.2s="$refresh">
     <!-- Notification Bell Button -->
     <button 
         @click="open = !open"
