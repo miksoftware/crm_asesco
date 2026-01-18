@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Contact extends Model
@@ -12,6 +13,7 @@ class Contact extends Model
     use HasFactory;
     protected $fillable = [
         'channel_id',
+        'assigned_user_id',
         'phone_number',
         'remote_jid',
         'name',
@@ -36,6 +38,14 @@ class Contact extends Model
     }
 
     /**
+     * Get the assigned user for this contact.
+     */
+    public function assignedUser(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'assigned_user_id');
+    }
+
+    /**
      * Get the messages for the contact.
      */
     public function messages(): HasMany
@@ -57,6 +67,22 @@ class Contact extends Model
     public function followUps(): HasMany
     {
         return $this->hasMany(FollowUp::class);
+    }
+
+    /**
+     * Get the labels for this contact (new system).
+     */
+    public function labelRelations(): BelongsToMany
+    {
+        return $this->belongsToMany(Label::class)->withTimestamps();
+    }
+
+    /**
+     * Get the chat transfers for this contact.
+     */
+    public function chatTransfers(): HasMany
+    {
+        return $this->hasMany(ChatTransfer::class);
     }
 
     /**

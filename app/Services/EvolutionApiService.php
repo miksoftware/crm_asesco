@@ -114,6 +114,69 @@ class EvolutionApiService
     }
 
     /**
+     * Send an image message via Evolution API.
+     */
+    public function sendImageMessage(string $instanceName, string $number, string $imageBase64, ?string $caption = null, string $mimetype = 'image/jpeg'): array
+    {
+        $response = $this->request()->post("/message/sendMedia/{$instanceName}", [
+            'number' => $number,
+            'mediatype' => 'image',
+            'mimetype' => $mimetype,
+            'caption' => $caption,
+            'media' => $imageBase64,
+        ]);
+
+        return $this->handleResponse($response);
+    }
+
+    /**
+     * Send a document/file message via Evolution API.
+     */
+    public function sendDocumentMessage(string $instanceName, string $number, string $fileBase64, string $fileName, string $mimetype, ?string $caption = null): array
+    {
+        $response = $this->request()->post("/message/sendMedia/{$instanceName}", [
+            'number' => $number,
+            'mediatype' => 'document',
+            'mimetype' => $mimetype,
+            'caption' => $caption,
+            'media' => $fileBase64,
+            'fileName' => $fileName,
+        ]);
+
+        return $this->handleResponse($response);
+    }
+
+    /**
+     * Send an audio message via Evolution API.
+     */
+    public function sendAudioMessage(string $instanceName, string $number, string $audioBase64, string $mimetype = 'audio/ogg; codecs=opus'): array
+    {
+        $response = $this->request()->post("/message/sendWhatsAppAudio/{$instanceName}", [
+            'number' => $number,
+            'audio' => $audioBase64,
+            'encoding' => true,
+        ]);
+
+        return $this->handleResponse($response);
+    }
+
+    /**
+     * Send a video message via Evolution API.
+     */
+    public function sendVideoMessage(string $instanceName, string $number, string $videoBase64, ?string $caption = null, string $mimetype = 'video/mp4'): array
+    {
+        $response = $this->request()->post("/message/sendMedia/{$instanceName}", [
+            'number' => $number,
+            'mediatype' => 'video',
+            'mimetype' => $mimetype,
+            'caption' => $caption,
+            'media' => $videoBase64,
+        ]);
+
+        return $this->handleResponse($response);
+    }
+
+    /**
      * Configure webhook for an instance to receive messages.
      */
     public function setWebhook(string $instanceName, ?string $webhookUrl = null): array
