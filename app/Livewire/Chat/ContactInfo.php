@@ -2,10 +2,11 @@
 
 namespace App\Livewire\Chat;
 
-use App\Enums\ContactLabel;
 use App\Models\Contact;
+use App\Models\Label;
 use Livewire\Component;
 use Livewire\Attributes\On;
+use Illuminate\Support\Str;
 
 /**
  * Contact Info Panel Component
@@ -13,12 +14,11 @@ use Livewire\Attributes\On;
  * Displays contact information including name, phone, labels, notes,
  * conversation history summary, payment promises, and follow-ups.
  * Allows editing of contact name and notes.
- * 
- * Requirements: 8.1, 8.2, 8.3, 8.4, 8.5
  */
 class ContactInfo extends Component
 {
     public Contact $contact;
+    public ?int $channelId = null;
     public bool $editing = false;
     public string $editName = '';
     public string $editNotes = '';
@@ -26,9 +26,15 @@ class ContactInfo extends Component
     // Permission flag
     public bool $canManageLabels = false;
 
-    public function mount(Contact $contact): void
+    // New label modal
+    public bool $showNewLabelModal = false;
+    public string $newLabelName = '';
+    public string $newLabelColor = '#6b7280';
+
+    public function mount(Contact $contact, ?int $channelId = null): void
     {
         $this->contact = $contact;
+        $this->channelId = $channelId ?? $contact->channel_id;
         $this->editName = $contact->name ?? '';
         $this->editNotes = $contact->notes ?? '';
 
@@ -59,7 +65,6 @@ class ContactInfo extends Component
 
     /**
      * Update contact name and notes.
-     * Requirements: 8.3
      */
     public function updateContact(): void
     {
@@ -79,32 +84,27 @@ class ContactInfo extends Component
     }
 
     /**
-     * Add a label to the contact.
-     * Requirements: 6.2, 6.4
+     * Add a label to the contact using the labels table.
      */
-    public function addLabel(string $labelValue): void
+    public function addLabel(int $labelId): void
     {
         if (!$this->canManageLabels) {
             $this->dispatch('toast', type: 'error', message: 'No tienes permiso para gestionar etiquetas');
             return;
         }
 
-        // Validate label value
-        $validLabel = ContactLabel::tryFrom($labelValue);
-        if (!$validLabel) {
-            $this->dispatch('toast', type: 'error', message: 'Etiqueta no válida');
+        $label = Label::find($labelId);
+        if (!$label) {
+            $this->dispatch('toast', type: 'error', message: 'Etiqueta no encontrada');
             return;
         }
 
-        $labels = $this->contact->labels ?? [];
-        
-        // Don't add if already exists
-        if (in_array($labelValue, $labels)) {
+        // Check if already attached
+        if ($this->contact->labelRelations()->where('label_id', $labelId)->exists()) {
             return;
         }
 
-        $labels[] = $labelValue;
-        $this->contact->update(['labels' => $labels]);
+        $this->contact->labelRelations()->attach($labelId);
         $this->contact->refresh();
 
         $this->dispatch('contact-updated');
@@ -113,20 +113,15 @@ class ContactInfo extends Component
 
     /**
      * Remove a label from the contact.
-     * Requirements: 6.5
      */
-    public function removeLabel(string $labelValue): void
+    public function removeLabel(int $labelId): void
     {
         if (!$this->canManageLabels) {
             $this->dispatch('toast', type: 'error', message: 'No tienes permiso para gestionar etiquetas');
             return;
         }
 
-        $labels = $this->contact->labels ?? [];
-        
-        // Remove the label
-        $labels = array_values(array_filter($labels, fn($l) => $l !== $labelValue));
-        $this->contact->update(['labels' => $labels]);
+        $this->contact->labelRelations()->detach($labelId);
         $this->contact->refresh();
 
         $this->dispatch('contact-updated');
@@ -134,16 +129,90 @@ class ContactInfo extends Component
     }
 
     /**
-     * Get available labels for the dropdown.
+     * Open the new label modal.
      */
-    public function getAvailableLabelsProperty(): array
+    public function openNewLabelModal(): void
     {
-        return ContactLabel::cases();
+        $this->showNewLabelModal = true;
+        $this->newLabelName = '';
+        $this->newLabelColor = '#6b7280';
+    }
+
+    /**
+     * Close the new label modal.
+     */
+    public function closeNewLabelModal(): void
+    {
+        $this->showNewLabelModal = false;
+        $this->newLabelName = '';
+        $this->newLabelColor = '#6b7280';
+    }
+
+    /**
+     * Create a new label.
+     */
+    public function createLabel(): void
+    {
+        if (!$this->canManageLabels) {
+            $this->dispatch('toast', type: 'error', message: 'No tienes permiso para crear etiquetas');
+            return;
+        }
+
+        $this->validate([
+            'newLabelName' => 'required|string|min:2|max:50',
+            'newLabelColor' => 'required|string|regex:/^#[0-9A-Fa-f]{6}$/',
+        ], [
+            'newLabelName.required' => 'El nombre es requerido',
+            'newLabelName.min' => 'El nombre debe tener al menos 2 caracteres',
+            'newLabelColor.regex' => 'El color debe ser un código hexadecimal válido',
+        ]);
+
+        $slug = Str::slug($this->newLabelName);
+        
+        // Check if slug already exists
+        if (Label::where('slug', $slug)->exists()) {
+            $this->dispatch('toast', type: 'error', message: 'Ya existe una etiqueta con ese nombre');
+            return;
+        }
+
+        $label = Label::create([
+            'name' => $this->newLabelName,
+            'slug' => $slug,
+            'color' => $this->newLabelColor,
+            'is_system' => false,
+        ]);
+
+        // Automatically add the new label to the current contact
+        $this->contact->labelRelations()->attach($label->id);
+        $this->contact->refresh();
+
+        $this->closeNewLabelModal();
+        $this->dispatch('contact-updated');
+        $this->dispatch('toast', type: 'success', message: 'Etiqueta creada y asignada');
+    }
+
+    /**
+     * Get available labels from the database.
+     */
+    public function getAvailableLabelsProperty()
+    {
+        return Label::orderBy('order')->orderBy('name')->get();
+    }
+
+    /**
+     * Get labels not yet assigned to this contact.
+     */
+    public function getUnassignedLabelsProperty()
+    {
+        $assignedIds = $this->contact->labelRelations()->pluck('labels.id')->toArray();
+        return Label::whereNotIn('id', $assignedIds)
+            ->orderBy('order')
+            ->orderBy('name')
+            ->get();
     }
 
     /**
      * Get total message count for the contact.
-     * Requirements: 8.2
      */
     public function getTotalMessagesProperty(): int
     {
@@ -152,7 +221,6 @@ class ContactInfo extends Component
 
     /**
      * Get first contact date.
-     * Requirements: 8.2
      */
     public function getFirstContactDateProperty(): ?string
     {
@@ -170,7 +238,6 @@ class ContactInfo extends Component
 
     /**
      * Get payment promises for the contact.
-     * Requirements: 8.5
      */
     public function getPaymentPromisesProperty()
     {
@@ -181,7 +248,6 @@ class ContactInfo extends Component
 
     /**
      * Get pending follow-ups for the contact.
-     * Requirements: 8.4
      */
     public function getPendingFollowUpsProperty()
     {
@@ -193,7 +259,6 @@ class ContactInfo extends Component
 
     /**
      * Get all follow-ups for the contact.
-     * Requirements: 8.4
      */
     public function getAllFollowUpsProperty()
     {

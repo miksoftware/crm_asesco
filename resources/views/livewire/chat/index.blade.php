@@ -410,54 +410,7 @@
             <!-- Right Column: Contact Info Panel -->
             @if($selectedContactId && $this->selectedContact)
                 <div class="w-80 flex-shrink-0 bg-white border-l border-gray-200 overflow-y-auto">
-                    <livewire:chat.contact-info :contact="$this->selectedContact" :key="'contact-info-'.$selectedContactId" />
-                    
-                    <!-- Labels Section -->
-                    <div class="p-4 border-t border-gray-200">
-                        <div class="flex items-center justify-between mb-3">
-                            <h4 class="text-sm font-semibold text-gray-700">Etiquetas</h4>
-                            @if($canManageLabels)
-                                <button wire:click="openNewLabelModal" class="text-xs text-green-600 hover:text-green-700">+ Nueva</button>
-                            @endif
-                        </div>
-                        
-                        <!-- Current Labels -->
-                        <div class="flex flex-wrap gap-1.5 mb-3">
-                            @forelse($this->selectedContact->labelRelations as $label)
-                                <span class="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full" style="background-color: {{ $label->color }}20; color: {{ $label->color }}">
-                                    {{ $label->name }}
-                                    @if($canManageLabels)
-                                        <button wire:click="removeLabelFromContact({{ $label->id }})" class="hover:opacity-70">&times;</button>
-                                    @endif
-                                </span>
-                            @empty
-                                <span class="text-xs text-gray-400">Sin etiquetas</span>
-                            @endforelse
-                        </div>
-
-                        <!-- Add Label -->
-                        @if($canManageLabels)
-                            <div x-data="{ open: false }" class="relative">
-                                <button @click="open = !open" class="text-xs text-gray-500 hover:text-gray-700 flex items-center gap-1">
-                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/></svg>
-                                    Agregar etiqueta
-                                </button>
-                                <div x-show="open" @click.away="open = false" x-transition class="absolute left-0 bottom-full mb-1 bg-white rounded-lg shadow-lg border border-gray-200 py-1 min-w-[150px] max-h-48 overflow-y-auto z-10">
-                                    @foreach($this->availableLabels as $label)
-                                        @if(!$this->selectedContact->labelRelations->contains('id', $label->id))
-                                            <button wire:click="addLabelToContact({{ $label->id }})" @click="open = false" class="w-full text-left px-3 py-1.5 text-xs hover:bg-gray-50 flex items-center gap-2">
-                                                <span class="w-3 h-3 rounded-full" style="background-color: {{ $label->color }}"></span>
-                                                {{ $label->name }}
-                                            </button>
-                                        @endif
-                                    @endforeach
-                                </div>
-                            </div>
-                        @endif
-                    </div>
-
-                    <!-- Quick Actions -->
-                    <livewire:chat.quick-actions :contact="$this->selectedContact" :channel-id="$selectedChannelId" :key="'quick-actions-'.$selectedContactId" />
+                    <livewire:chat.contact-info :contact="$this->selectedContact" :channel-id="$selectedChannelId" :key="'contact-info-'.$selectedContactId" />
                 </div>
             @endif
         </div>

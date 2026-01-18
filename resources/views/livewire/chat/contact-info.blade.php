@@ -1,9 +1,6 @@
 <div class="h-full flex flex-col">
     <!-- Contact Header -->
     <div class="p-4 border-b border-gray-200 text-center">
-        @php
-            $channelId = $contact->channel_id;
-        @endphp
         <div class="w-20 h-20 rounded-full bg-gray-200 flex items-center justify-center mx-auto mb-3 overflow-hidden">
             @if($contact->profile_picture)
                 <img src="{{ $contact->profile_picture }}" alt="" class="w-full h-full object-cover">
@@ -40,78 +37,67 @@
     <div class="flex-1 overflow-y-auto">
         <!-- Labels Section -->
         <div class="p-4 border-b border-gray-200">
-            <h4 class="text-sm font-semibold text-gray-700 mb-3">Etiquetas</h4>
-            
-            <!-- Current Labels with Remove Button -->
-            <div class="flex flex-wrap gap-2 mb-3">
-                @if(!empty($contact->labels))
-                    @foreach($contact->labels as $labelValue)
-                        @php
-                            $labelEnum = App\Enums\ContactLabel::tryFrom($labelValue);
-                        @endphp
-                        @if($labelEnum)
-                            <span class="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full font-medium"
-                                  style="background-color: {{ $labelEnum->color() }}20; color: {{ $labelEnum->color() }}">
-                                {{ $labelEnum->label() }}
-                                @if($canManageLabels)
-                                    <button wire:click="removeLabel('{{ $labelValue }}')"
-                                            wire:loading.attr="disabled"
-                                            class="ml-0.5 hover:opacity-70 transition-opacity"
-                                            title="Quitar etiqueta">
-                                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-                                        </svg>
-                                    </button>
-                                @endif
-                            </span>
-                        @endif
-                    @endforeach
-                @else
-                    <span class="text-sm text-gray-400">Sin etiquetas</span>
+            <div class="flex items-center justify-between mb-3">
+                <h4 class="text-sm font-semibold text-gray-700">Etiquetas</h4>
+                @if($canManageLabels)
+                    <button wire:click="openNewLabelModal" class="text-xs text-green-600 hover:text-green-700 font-medium">
+                        + Nueva
+                    </button>
                 @endif
+            </div>
+            
+            <!-- Current Labels -->
+            <div class="flex flex-wrap gap-2 mb-3">
+                @forelse($contact->labelRelations as $label)
+                    <span class="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full font-medium"
+                          style="background-color: {{ $label->color }}20; color: {{ $label->color }}">
+                        {{ $label->name }}
+                        @if($canManageLabels)
+                            <button wire:click="removeLabel({{ $label->id }})"
+                                    wire:loading.attr="disabled"
+                                    class="ml-0.5 hover:opacity-70 transition-opacity"
+                                    title="Quitar etiqueta">
+                                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                                </svg>
+                            </button>
+                        @endif
+                    </span>
+                @empty
+                    <span class="text-sm text-gray-400">Sin etiquetas</span>
+                @endforelse
             </div>
 
             <!-- Add Label Dropdown -->
-            @if($canManageLabels)
-                @php
-                    $currentLabels = $contact->labels ?? [];
-                    $availableToAdd = collect($this->availableLabels)->filter(fn($label) => !in_array($label->value, $currentLabels));
-                @endphp
-                @if($availableToAdd->isNotEmpty())
-                    <div x-data="{ open: false }" class="relative">
-                        <button @click="open = !open" 
-                                type="button"
-                                class="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-full transition-colors">
-                            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
-                            </svg>
-                            Agregar etiqueta
-                        </button>
-                        
-                        <!-- Dropdown Menu -->
-                        <div x-show="open" 
-                             @click.away="open = false"
-                             x-transition:enter="transition ease-out duration-100"
-                             x-transition:enter-start="transform opacity-0 scale-95"
-                             x-transition:enter-end="transform opacity-100 scale-100"
-                             x-transition:leave="transition ease-in duration-75"
-                             x-transition:leave-start="transform opacity-100 scale-100"
-                             x-transition:leave-end="transform opacity-0 scale-95"
-                             class="absolute left-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-10">
-                            @foreach($availableToAdd as $label)
-                                <button wire:click="addLabel('{{ $label->value }}')"
-                                        @click="open = false"
-                                        wire:loading.attr="disabled"
-                                        class="w-full px-3 py-2 text-left text-sm hover:bg-gray-50 flex items-center gap-2 transition-colors">
-                                    <span class="w-3 h-3 rounded-full flex-shrink-0" style="background-color: {{ $label->color() }}"></span>
-                                    <span>{{ $label->label() }}</span>
-                                </button>
-                            @endforeach
-                        </div>
+            @if($canManageLabels && $this->unassignedLabels->isNotEmpty())
+                <div x-data="{ open: false }" class="relative">
+                    <button @click="open = !open" 
+                            type="button"
+                            class="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-full transition-colors">
+                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+                        </svg>
+                        Agregar etiqueta
+                    </button>
+                    
+                    <!-- Dropdown Menu -->
+                    <div x-show="open" 
+                         @click.away="open = false"
+                         x-transition
+                         class="absolute left-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-10 max-h-48 overflow-y-auto">
+                        @foreach($this->unassignedLabels as $label)
+                            <button wire:click="addLabel({{ $label->id }})"
+                                    @click="open = false"
+                                    wire:loading.attr="disabled"
+                                    class="w-full px-3 py-2 text-left text-sm hover:bg-gray-50 flex items-center gap-2 transition-colors">
+                                <span class="w-3 h-3 rounded-full flex-shrink-0" style="background-color: {{ $label->color }}"></span>
+                                <span>{{ $label->name }}</span>
+                            </button>
+                        @endforeach
                     </div>
-                @else
-                    <p class="text-xs text-gray-400">Todas las etiquetas asignadas</p>
-                @endif
+                </div>
+            @elseif($canManageLabels && $this->unassignedLabels->isEmpty() && $contact->labelRelations->isNotEmpty())
+                <p class="text-xs text-gray-400">Todas las etiquetas asignadas</p>
             @endif
         </div>
 
@@ -290,4 +276,45 @@
             @endif
         </div>
     </div>
+
+    <!-- New Label Modal -->
+    @teleport('body')
+        <div x-data="{ show: @entangle('showNewLabelModal') }" x-show="show" x-cloak class="fixed inset-0 z-50 overflow-y-auto">
+            <div class="flex items-center justify-center min-h-screen px-4">
+                <div class="fixed inset-0 bg-black/30 backdrop-blur-sm" x-show="show" x-transition wire:click="closeNewLabelModal"></div>
+                <div class="relative bg-white rounded-2xl shadow-xl w-full max-w-sm p-6" x-show="show" x-transition>
+                    <h3 class="text-lg font-semibold text-gray-900 mb-4">Nueva Etiqueta</h3>
+                    <form wire:submit="createLabel" class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Nombre</label>
+                            <input type="text" wire:model="newLabelName" 
+                                   class="w-full px-4 py-2.5 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500" 
+                                   placeholder="Ej: Urgente">
+                            @error('newLabelName') <p class="mt-1 text-sm text-red-600">{{ $message }}</p> @enderror
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Color</label>
+                            <div class="flex items-center gap-3">
+                                <input type="color" wire:model="newLabelColor" class="w-12 h-10 rounded border-0 cursor-pointer">
+                                <input type="text" wire:model="newLabelColor" 
+                                       class="flex-1 px-4 py-2.5 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-green-500" 
+                                       placeholder="#6b7280">
+                            </div>
+                            @error('newLabelColor') <p class="mt-1 text-sm text-red-600">{{ $message }}</p> @enderror
+                        </div>
+                        <div class="flex gap-3 pt-2">
+                            <button type="button" wire:click="closeNewLabelModal" 
+                                    class="flex-1 px-4 py-2.5 border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50 font-medium">
+                                Cancelar
+                            </button>
+                            <button type="submit" 
+                                    class="flex-1 px-4 py-2.5 bg-green-500 text-white rounded-xl hover:bg-green-600 font-medium">
+                                Crear
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    @endteleport
 </div>
