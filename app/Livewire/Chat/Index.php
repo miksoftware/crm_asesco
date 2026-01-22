@@ -65,6 +65,9 @@ class Index extends Component
     public string $newLabelName = '';
     public string $newLabelColor = '#6b7280';
 
+    // Sync state
+    public bool $isSyncing = false;
+
     // Permission flags
     public bool $canSend = false;
     public bool $canManageLabels = false;
@@ -680,6 +683,191 @@ class Index extends Component
     {
         unset($this->conversations);
         unset($this->selectedContact);
+    }
+
+    /**
+     * Sync messages from Evolution API for the current channel.
+     */
+    public function syncMessages(): void
+    {
+        if ($this->selectedChannelId === null) {
+            $this->dispatch('toast', type: 'error', message: 'Selecciona un canal primero');
+            return;
+        }
+
+        $channel = Channel::find($this->selectedChannelId);
+        if (!$channel) {
+            $this->dispatch('toast', type: 'error', message: 'Canal no encontrado');
+            return;
+        }
+
+        $this->isSyncing = true;
+        $evolutionApi = app(EvolutionApiService::class);
+
+        try {
+            $imported = 0;
+            $page = 1;
+            $maxPages = 10;
+
+            while ($page <= $maxPages) {
+                $result = $evolutionApi->fetchAllMessages($channel->instance_name, $page, 100);
+
+                if (!$result['success']) {
+                    Log::error('Error fetching messages from Evolution API', ['error' => $result['error'] ?? 'Unknown']);
+                    break;
+                }
+
+                $messagesData = $result['data']['messages'] ?? $result['data'] ?? [];
+                $records = $messagesData['records'] ?? $messagesData ?? [];
+
+                if (empty($records)) {
+                    break;
+                }
+
+                foreach ($records as $msgData) {
+                    if ($this->processImportedMessage($channel, $msgData)) {
+                        $imported++;
+                    }
+                }
+
+                $page++;
+            }
+
+            $this->isSyncing = false;
+            unset($this->conversations);
+            unset($this->messages);
+
+            if ($imported > 0) {
+                $this->dispatch('toast', type: 'success', message: "Se importaron {$imported} mensajes");
+            } else {
+                $this->dispatch('toast', type: 'info', message: 'No hay mensajes nuevos para importar');
+            }
+
+        } catch (\Exception $e) {
+            $this->isSyncing = false;
+            Log::error('Error syncing messages', ['error' => $e->getMessage()]);
+            $this->dispatch('toast', type: 'error', message: 'Error al sincronizar: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Process a single message from Evolution API import.
+     */
+    private function processImportedMessage(Channel $channel, array $msgData): bool
+    {
+        $key = $msgData['key'] ?? [];
+        $messageId = $key['id'] ?? null;
+        $remoteJid = $key['remoteJid'] ?? null;
+
+        if (!$messageId || !$remoteJid) {
+            return false;
+        }
+
+        // Skip groups
+        if (str_contains($remoteJid, '@g.us')) {
+            return false;
+        }
+
+        // Check if message already exists
+        if (Message::where('message_id', $messageId)->exists()) {
+            return false;
+        }
+
+        // Extract phone number from JID
+        $phoneNumber = $this->extractPhoneNumber($remoteJid);
+        if (!$phoneNumber) {
+            return false;
+        }
+
+        // Create or update contact
+        $contact = Contact::updateOrCreate(
+            [
+                'channel_id' => $channel->id,
+                'phone_number' => $phoneNumber,
+            ],
+            [
+                'remote_jid' => $remoteJid,
+                'push_name' => $msgData['pushName'] ?? null,
+            ]
+        );
+
+        // Extract message content
+        $messageContent = $msgData['message'] ?? [];
+        $content = $messageContent['conversation'] 
+            ?? $messageContent['extendedTextMessage']['text'] ?? null
+            ?? $messageContent['imageMessage']['caption'] ?? null
+            ?? $messageContent['videoMessage']['caption'] ?? null
+            ?? $messageContent['documentMessage']['caption'] ?? null
+            ?? $messageContent['documentMessage']['fileName'] ?? null
+            ?? '[Media]';
+
+        // Determine message type
+        $messageType = $msgData['messageType'] ?? 'conversation';
+        $type = match (true) {
+            str_contains($messageType, 'image') => 'image',
+            str_contains($messageType, 'video') => 'video',
+            str_contains($messageType, 'audio'), str_contains($messageType, 'ptt') => 'audio',
+            str_contains($messageType, 'document') => 'document',
+            str_contains($messageType, 'sticker') => 'image',
+            default => 'text',
+        };
+
+        if (str_contains($messageType, 'sticker')) {
+            $content = '[Sticker]';
+        }
+
+        // Parse timestamp - convert to local timezone
+        $timestamp = $msgData['messageTimestamp'] ?? null;
+        $sentAt = $timestamp 
+            ? \Carbon\Carbon::createFromTimestamp($timestamp, 'UTC')->setTimezone(config('app.timezone'))
+            : now();
+
+        // Determine direction
+        $isFromMe = $key['fromMe'] ?? false;
+        $direction = $isFromMe ? 'outgoing' : 'incoming';
+        $status = $isFromMe ? 'sent' : 'delivered';
+
+        // Create message
+        Message::create([
+            'channel_id' => $channel->id,
+            'contact_id' => $contact->id,
+            'message_id' => $messageId,
+            'content' => $content ?: '[Media]',
+            'type' => $type,
+            'direction' => $direction,
+            'status' => $status,
+            'sent_at' => $sentAt,
+            'is_read' => true,
+        ]);
+
+        return true;
+    }
+
+    /**
+     * Extract phone number from WhatsApp JID.
+     */
+    private function extractPhoneNumber(string $remoteJid): ?string
+    {
+        // Format: 573001234567@s.whatsapp.net or 573001234567:123@lid
+        if (preg_match('/^(\d+)[@:]/', $remoteJid, $matches)) {
+            return $matches[1];
+        }
+        return null;
+    }
+
+    /**
+     * Check if current channel has any conversations.
+     */
+    #[Computed]
+    public function hasConversations(): bool
+    {
+        if ($this->selectedChannelId === null) {
+            return false;
+        }
+
+        return Contact::where('channel_id', $this->selectedChannelId)
+            ->whereHas('messages')
+            ->exists();
     }
 
     public function render()
