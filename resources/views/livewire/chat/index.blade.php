@@ -45,7 +45,7 @@
                                placeholder="Buscar contacto...">
                     </div>
 
-                    <!-- Label Filter -->
+                    <!-- Label Filter & Sync Button -->
                     <div class="flex items-center gap-2">
                         <select wire:model.live="labelFilter" 
                                 class="flex-1 px-2 py-1.5 border border-gray-300 rounded-lg text-xs focus:ring-2 focus:ring-green-500">
@@ -61,6 +61,20 @@
                                 </svg>
                             </button>
                         @endif
+                        <!-- Sync Button -->
+                        <button wire:click="syncMessages" 
+                                wire:loading.attr="disabled"
+                                wire:target="syncMessages"
+                                class="p-1.5 text-gray-500 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors disabled:opacity-50"
+                                title="Sincronizar mensajes">
+                            <svg wire:loading.remove wire:target="syncMessages" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                            </svg>
+                            <svg wire:loading wire:target="syncMessages" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                        </button>
                     </div>
                 </div>
 
@@ -191,40 +205,75 @@
 
                         <!-- Messages -->
                         @foreach($this->messages as $message)
-                            <div wire:key="message-{{ $message->id }}" class="flex {{ $message->direction === 'outgoing' ? 'justify-end' : 'justify-start' }}">
-                                <div class="max-w-[65%] {{ $message->direction === 'outgoing' ? 'bg-[#d9fdd3]' : 'bg-white' }} rounded-lg px-3 py-1.5 shadow-sm relative"
+                            <div wire:key="message-{{ $message->id }}" class="flex {{ $message->direction === 'outgoing' ? 'justify-end' : 'justify-start' }} mb-1">
+                                <div class="max-w-[65%] {{ $message->direction === 'outgoing' ? 'bg-[#d9fdd3]' : 'bg-white' }} rounded-lg px-3 py-1.5 shadow-sm relative min-w-[80px]"
                                      style="{{ $message->direction === 'outgoing' ? 'border-top-right-radius: 0;' : 'border-top-left-radius: 0;' }}">
                                     @if($message->type === 'text')
-                                        <p class="text-sm text-gray-800 whitespace-pre-wrap break-words pr-14">{{ $message->content }}</p>
+                                        <p class="text-sm text-gray-800 whitespace-pre-wrap break-words pr-14">{{ $message->content ?: '[Mensaje vacío]' }}</p>
                                     @elseif($message->type === 'image')
                                         @if($message->media_url)
                                             <a href="{{ $message->media_url }}" target="_blank" class="block">
                                                 <img src="{{ $message->media_url }}" alt="Imagen" class="max-w-full max-h-64 rounded-lg cursor-pointer" loading="lazy">
                                             </a>
+                                        @else
+                                            <div class="flex items-center gap-2 text-gray-500 py-1">
+                                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                                                <span class="text-sm italic">{{ $message->content ?: 'Imagen' }}</span>
+                                            </div>
                                         @endif
-                                        @if($message->content && $message->content !== '[Media]')
+                                        @if($message->content && $message->content !== '[Media]' && $message->content !== '[Imagen]' && $message->media_url)
                                             <p class="text-sm text-gray-800 mt-1 pr-14">{{ $message->content }}</p>
                                         @endif
                                     @elseif($message->type === 'audio')
                                         @if($message->media_url)
                                             <audio controls class="max-w-full"><source src="{{ $message->media_url }}" type="{{ $message->media_mime_type ?? 'audio/ogg' }}"></audio>
                                         @else
-                                            <div class="flex items-center gap-2 text-gray-600"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/></svg><span class="text-sm">Audio</span></div>
+                                            <div class="flex items-center gap-2 text-gray-500 py-1">
+                                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/></svg>
+                                                <span class="text-sm italic">Audio</span>
+                                            </div>
                                         @endif
                                     @elseif($message->type === 'document')
-                                        <a href="{{ $message->media_url }}" target="_blank" class="flex items-center gap-2 p-2 bg-gray-100 rounded-lg hover:bg-gray-200">
-                                            <svg class="w-8 h-8 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
-                                            <span class="text-sm text-gray-700">{{ $message->content ?? 'Documento' }}</span>
-                                        </a>
+                                        <div class="flex items-center gap-2 p-2 bg-gray-100 rounded-lg {{ $message->media_url ? 'hover:bg-gray-200 cursor-pointer' : '' }}"
+                                             @if($message->media_url) onclick="window.open('{{ $message->media_url }}', '_blank')" @endif>
+                                            <svg class="w-8 h-8 text-gray-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                                            <span class="text-sm text-gray-700">{{ $message->content ?: 'Documento' }}</span>
+                                        </div>
                                     @elseif($message->type === 'video')
                                         @if($message->media_url)
                                             <video controls class="max-w-full max-h-64 rounded-lg"><source src="{{ $message->media_url }}" type="{{ $message->media_mime_type ?? 'video/mp4' }}"></video>
+                                        @else
+                                            <div class="flex items-center gap-2 text-gray-500 py-1">
+                                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+                                                <span class="text-sm italic">Video</span>
+                                            </div>
                                         @endif
+                                    @elseif($message->type === 'contact')
+                                        <div class="flex items-center gap-2 p-2 bg-gray-100 rounded-lg">
+                                            <svg class="w-8 h-8 text-blue-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
+                                            <span class="text-sm text-gray-700">{{ $message->content ?: 'Contacto compartido' }}</span>
+                                        </div>
+                                    @elseif($message->type === 'location')
+                                        <div class="flex items-center gap-2 p-2 bg-gray-100 rounded-lg">
+                                            <svg class="w-8 h-8 text-red-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                                            <span class="text-sm text-gray-700">{{ $message->content ?: 'Ubicación compartida' }}</span>
+                                        </div>
+                                    @elseif($message->type === 'sticker')
+                                        <div class="flex items-center gap-2 text-gray-500 py-1">
+                                            <span class="text-2xl">🎭</span>
+                                            <span class="text-sm italic">Sticker</span>
+                                        </div>
+                                    @elseif($message->type === 'deleted')
+                                        <div class="flex items-center gap-2 text-gray-400 py-1 italic">
+                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/></svg>
+                                            <span class="text-sm">Mensaje eliminado</span>
+                                        </div>
                                     @else
-                                        <p class="text-sm text-gray-800 pr-14">{{ $message->content ?? '[Mensaje]' }}</p>
+                                        {{-- Fallback for unknown types --}}
+                                        <p class="text-sm text-gray-600 italic pr-14">{{ $message->content ?: '[' . ucfirst($message->type ?? 'Mensaje') . ']' }}</p>
                                     @endif
                                     <!-- Time & Status -->
-                                    <div class="flex items-center justify-end gap-1 {{ $message->type === 'text' ? 'absolute bottom-1 right-2' : 'mt-1' }}">
+                                    <div class="flex items-center justify-end gap-1 {{ in_array($message->type, ['text']) && $message->content ? 'absolute bottom-1 right-2' : 'mt-1' }}">
                                         <span class="text-[10px] text-gray-500">{{ $message->sent_at?->format('H:i') }}</span>
                                         @if($message->direction === 'outgoing')
                                             @if($message->status === 'read')

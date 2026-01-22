@@ -791,29 +791,72 @@ class Index extends Component
             ]
         );
 
-        // Extract message content
+        // Extract message content and type
         $messageContent = $msgData['message'] ?? [];
-        $content = $messageContent['conversation'] 
-            ?? $messageContent['extendedTextMessage']['text'] ?? null
-            ?? $messageContent['imageMessage']['caption'] ?? null
-            ?? $messageContent['videoMessage']['caption'] ?? null
-            ?? $messageContent['documentMessage']['caption'] ?? null
-            ?? $messageContent['documentMessage']['fileName'] ?? null
-            ?? '[Media]';
-
-        // Determine message type
         $messageType = $msgData['messageType'] ?? 'conversation';
-        $type = match (true) {
-            str_contains($messageType, 'image') => 'image',
-            str_contains($messageType, 'video') => 'video',
-            str_contains($messageType, 'audio'), str_contains($messageType, 'ptt') => 'audio',
-            str_contains($messageType, 'document') => 'document',
-            str_contains($messageType, 'sticker') => 'image',
-            default => 'text',
-        };
+        
+        // Determine type and content based on message type
+        $type = 'text';
+        $content = null;
 
-        if (str_contains($messageType, 'sticker')) {
+        // Handle different message types
+        if (isset($messageContent['conversation'])) {
+            $type = 'text';
+            $content = $messageContent['conversation'];
+        } elseif (isset($messageContent['extendedTextMessage'])) {
+            $type = 'text';
+            $content = $messageContent['extendedTextMessage']['text'] ?? null;
+        } elseif (isset($messageContent['imageMessage'])) {
+            $type = 'image';
+            $content = $messageContent['imageMessage']['caption'] ?? '[Imagen]';
+        } elseif (isset($messageContent['videoMessage'])) {
+            $type = 'video';
+            $content = $messageContent['videoMessage']['caption'] ?? '[Video]';
+        } elseif (isset($messageContent['audioMessage']) || isset($messageContent['pttMessage'])) {
+            $type = 'audio';
+            $content = '[Audio]';
+        } elseif (isset($messageContent['documentMessage']) || isset($messageContent['documentWithCaptionMessage'])) {
+            $type = 'document';
+            $docMsg = $messageContent['documentMessage'] ?? $messageContent['documentWithCaptionMessage']['message']['documentMessage'] ?? [];
+            $content = $docMsg['fileName'] ?? $docMsg['caption'] ?? '[Documento]';
+        } elseif (isset($messageContent['contactMessage']) || isset($messageContent['contactsArrayMessage'])) {
+            $type = 'contact';
+            $contactMsg = $messageContent['contactMessage'] ?? ($messageContent['contactsArrayMessage']['contacts'][0] ?? []);
+            $content = $contactMsg['displayName'] ?? '[Contacto compartido]';
+        } elseif (isset($messageContent['locationMessage']) || isset($messageContent['liveLocationMessage'])) {
+            $type = 'location';
+            $locMsg = $messageContent['locationMessage'] ?? $messageContent['liveLocationMessage'] ?? [];
+            $content = $locMsg['name'] ?? $locMsg['address'] ?? '[Ubicación compartida]';
+        } elseif (isset($messageContent['stickerMessage'])) {
+            $type = 'sticker';
             $content = '[Sticker]';
+        } elseif (isset($messageContent['reactionMessage'])) {
+            // Skip reactions - they're not standalone messages
+            return false;
+        } elseif (isset($messageContent['protocolMessage'])) {
+            // Check if it's a deleted message
+            $protoType = $messageContent['protocolMessage']['type'] ?? null;
+            if ($protoType === 'REVOKE' || $protoType === 0) {
+                $type = 'deleted';
+                $content = '[Mensaje eliminado]';
+            } else {
+                // Skip other protocol messages
+                return false;
+            }
+        } elseif (isset($messageContent['viewOnceMessage']) || isset($messageContent['viewOnceMessageV2'])) {
+            $type = 'image';
+            $content = '[Mensaje de vista única]';
+        } elseif (isset($messageContent['pollCreationMessage']) || isset($messageContent['pollCreationMessageV3'])) {
+            $type = 'text';
+            $pollMsg = $messageContent['pollCreationMessage'] ?? $messageContent['pollCreationMessageV3'] ?? [];
+            $content = '📊 Encuesta: ' . ($pollMsg['name'] ?? '[Encuesta]');
+        } else {
+            // Fallback - try to get any text content
+            $type = 'text';
+            $content = '[Mensaje no soportado]';
+            
+            // Log unknown message type for debugging
+            Log::debug('Unknown message type', ['messageType' => $messageType, 'keys' => array_keys($messageContent)]);
         }
 
         // Parse timestamp - convert to local timezone
@@ -832,7 +875,7 @@ class Index extends Component
             'channel_id' => $channel->id,
             'contact_id' => $contact->id,
             'message_id' => $messageId,
-            'content' => $content ?: '[Media]',
+            'content' => $content ?: '[Mensaje]',
             'type' => $type,
             'direction' => $direction,
             'status' => $status,
