@@ -50,14 +50,35 @@ class SyncLidMappingsFromApi extends Command
             $chats = $result['data'] ?? [];
             $this->line("  → Encontrados: " . count($chats) . " chats");
             
-            // Build a map of remoteJid -> chat info
-            $chatMap = [];
+            // Build a map of LID -> real phone number from chats
+            $lidToPhoneMap = [];
             foreach ($chats as $chat) {
-                $remoteJid = $chat['remoteJid'] ?? $chat['id'] ?? null;
-                if ($remoteJid && !str_contains($remoteJid, '@g.us') && !str_contains($remoteJid, '@broadcast')) {
-                    $chatMap[$remoteJid] = $chat;
+                $remoteJid = $chat['remoteJid'] ?? null;
+                
+                // Skip groups and broadcasts
+                if (!$remoteJid || str_contains($remoteJid, '@g.us') || str_contains($remoteJid, '@broadcast')) {
+                    continue;
+                }
+                
+                // Check if remoteJid is a LID
+                if (str_contains($remoteJid, '@lid')) {
+                    $lid = explode('@', $remoteJid)[0];
+                    
+                    // Look for remoteJidAlt in lastMessage.key
+                    $remoteJidAlt = $chat['lastMessage']['key']['remoteJidAlt'] ?? null;
+                    
+                    if ($remoteJidAlt && str_contains($remoteJidAlt, '@s.whatsapp.net')) {
+                        $realPhone = explode('@', $remoteJidAlt)[0];
+                        
+                        // Validate it's a real Colombian number
+                        if (preg_match('/^57[0-9]{10}$/', $realPhone)) {
+                            $lidToPhoneMap[$lid] = $realPhone;
+                        }
+                    }
                 }
             }
+            
+            $this->line("  → Mapeos LID encontrados en API: " . count($lidToPhoneMap));
             
             // Get contacts with LID in this channel
             $lidContacts = Contact::where('channel_id', $channel->id)
@@ -72,62 +93,38 @@ class SyncLidMappingsFromApi extends Command
             foreach ($lidContacts as $contact) {
                 $lid = $contact->phone_number;
                 
-                // Try to find this LID in the chat map
-                $lidJid = $lid . '@lid';
-                $lidJidAlt = $lid . '@s.whatsapp.net';
-                
-                $matchedChat = $chatMap[$lidJid] ?? $chatMap[$lidJidAlt] ?? null;
-                
-                // Also search by name in chats
-                if (!$matchedChat && $contact->push_name) {
-                    foreach ($chatMap as $jid => $chat) {
-                        $chatName = $chat['name'] ?? $chat['pushName'] ?? null;
-                        if ($chatName && $chatName === $contact->push_name) {
-                            // Check if this JID is a real phone number
-                            $jidPart = explode('@', $jid)[0];
-                            if (preg_match('/^57[0-9]{10}$/', $jidPart)) {
-                                $matchedChat = $chat;
-                                $matchedChat['_matched_jid'] = $jid;
-                                break;
-                            }
-                        }
-                    }
-                }
-                
-                if ($matchedChat) {
-                    $realJid = $matchedChat['_matched_jid'] ?? $matchedChat['remoteJid'] ?? null;
-                    $realPhone = $realJid ? explode('@', $realJid)[0] : null;
+                // Check if we have a mapping for this LID
+                if (isset($lidToPhoneMap[$lid])) {
+                    $realPhone = $lidToPhoneMap[$lid];
+                    $this->info("    LID {$lid} → {$realPhone}");
                     
-                    // Validate it's a real Colombian number
-                    if ($realPhone && preg_match('/^57[0-9]{10}$/', $realPhone)) {
-                        $this->info("    LID {$lid} → {$realPhone}");
+                    if (!$dryRun) {
+                        // Create LID mapping
+                        LidMapping::updateOrCreate(
+                            ['lid' => $lid],
+                            ['phone_number' => $realPhone, 'channel_id' => $channel->id]
+                        );
+                        $totalMappings++;
                         
-                        if (!$dryRun) {
-                            // Create LID mapping
-                            LidMapping::updateOrCreate(
-                                ['lid' => $lid],
-                                ['phone_number' => $realPhone, 'channel_id' => $channel->id]
-                            );
-                            $totalMappings++;
-                            
-                            // Check if there's already a contact with this real number
-                            $existingContact = Contact::where('channel_id', $channel->id)
-                                ->where('phone_number', $realPhone)
-                                ->where('id', '!=', $contact->id)
-                                ->first();
-                            
-                            if ($existingContact) {
-                                // Merge contacts
-                                $this->mergeContacts($existingContact, $contact);
-                                $totalMerged++;
-                            } else {
-                                // Update this contact with real number
-                                $contact->update([
-                                    'phone_number' => $realPhone,
-                                    'remote_jid' => $realPhone . '@s.whatsapp.net',
-                                ]);
-                            }
+                        // Check if there's already a contact with this real number
+                        $existingContact = Contact::where('channel_id', $channel->id)
+                            ->where('phone_number', $realPhone)
+                            ->where('id', '!=', $contact->id)
+                            ->first();
+                        
+                        if ($existingContact) {
+                            // Merge contacts
+                            $this->mergeContacts($existingContact, $contact);
+                            $totalMerged++;
+                        } else {
+                            // Update this contact with real number
+                            $contact->update([
+                                'phone_number' => $realPhone,
+                                'remote_jid' => $realPhone . '@s.whatsapp.net',
+                            ]);
                         }
+                    } else {
+                        $totalMappings++;
                     }
                 }
             }
