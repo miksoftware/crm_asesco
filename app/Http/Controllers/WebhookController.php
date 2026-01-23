@@ -31,6 +31,18 @@ class WebhookController extends Controller
     {
         $payload = $request->all();
         
+        // ⭐ SECURITY: Validate API key from Evolution API
+        $receivedApiKey = $payload['apikey'] ?? $request->header('apikey') ?? null;
+        $expectedApiKey = config('services.evolution.api_key');
+        
+        if (!$receivedApiKey || $receivedApiKey !== $expectedApiKey) {
+            Log::warning('Webhook received with invalid API key', [
+                'ip' => $request->ip(),
+                'received_key' => $receivedApiKey ? substr($receivedApiKey, 0, 8) . '...' : 'none',
+            ]);
+            return response()->json(['error' => 'Unauthorized'], 401);
+        }
+        
         // ⭐ LOG COMPLETO PARA VERIFICAR CAMPOS DISPONIBLES
         Log::info('=== WEBHOOK RAW PAYLOAD ===', [
             'full_payload' => json_encode($payload, JSON_PRETTY_PRINT),

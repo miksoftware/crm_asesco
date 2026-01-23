@@ -24,21 +24,7 @@ use Illuminate\Support\Facades\Route;
  * 
  * Requirements: 9.1
  * 
- * Note: This route is public (no authentication) as Evolution API
- * sends webhooks without authentication headers. Security is handled
- * by validating the instance name exists in our database.
+ * Security: Validates API key from Evolution API in the request.
  */
 Route::post('/webhook/evolution', [WebhookController::class, 'handleEvolutionWebhook'])
     ->name('webhook.evolution');
-
-/**
- * Test endpoint to verify webhook is accessible
- */
-Route::get('/webhook/test', function () {
-    return response()->json([
-        'status' => 'ok',
-        'message' => 'Webhook endpoint is accessible',
-        'timestamp' => now()->toIso8601String(),
-        'app_url' => config('app.url'),
-    ]);
-});
