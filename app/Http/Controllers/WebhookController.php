@@ -29,6 +29,23 @@ class WebhookController extends Controller
     {
         $payload = $request->all();
         
+        // ⭐ LOG COMPLETO PARA VERIFICAR CAMPOS DISPONIBLES
+        Log::info('=== WEBHOOK RAW PAYLOAD ===', [
+            'full_payload' => json_encode($payload, JSON_PRETTY_PRINT),
+        ]);
+        
+        // Si es un mensaje, loguear los campos del key específicamente
+        if (isset($payload['data']['key'])) {
+            Log::info('=== WEBHOOK KEY FIELDS ===', [
+                'remoteJid' => $payload['data']['key']['remoteJid'] ?? 'NO EXISTE',
+                'senderPn' => $payload['data']['key']['senderPn'] ?? 'NO EXISTE',
+                'cleanedSenderPn' => $payload['data']['key']['cleanedSenderPn'] ?? 'NO EXISTE',
+                'senderLid' => $payload['data']['key']['senderLid'] ?? 'NO EXISTE',
+                'addressingMode' => $payload['data']['key']['addressingMode'] ?? 'NO EXISTE',
+                'participant' => $payload['data']['key']['participant'] ?? 'NO EXISTE',
+            ]);
+        }
+        
         // Log incoming webhook for debugging
         Log::info('Evolution API Webhook received', [
             'event' => $payload['event'] ?? 'unknown',
