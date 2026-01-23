@@ -1,4 +1,4 @@
-<div class="h-[calc(100vh-8rem)] flex flex-col">
+<div class="h-[calc(100vh-8rem)] flex flex-col" x-data="{ showContactInfo: true }">
     @if($this->channels->isEmpty())
         <div class="flex-1 flex items-center justify-center bg-gray-50">
             <div class="text-center">
@@ -10,28 +10,28 @@
             </div>
         </div>
     @else
+        <!-- Channel Tabs - Full Width Top Bar -->
+        <div class="bg-white border-b-2 border-gray-300 flex-shrink-0">
+            <div class="flex">
+                @foreach($this->channels as $channel)
+                    <button wire:click="selectChannel({{ $channel->id }})"
+                            wire:key="channel-tab-{{ $channel->id }}"
+                            class="flex-1 px-4 py-3 text-sm font-medium border-b-2 -mb-[2px] transition-colors whitespace-nowrap
+                                   {{ $selectedChannelId === $channel->id 
+                                      ? 'border-green-500 text-green-600 bg-green-50' 
+                                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50' }}">
+                        <span class="flex items-center justify-center gap-2">
+                            <span class="w-2 h-2 rounded-full bg-green-500"></span>
+                            {{ $channel->name }}
+                        </span>
+                    </button>
+                @endforeach
+            </div>
+        </div>
+
         <div class="flex-1 flex overflow-hidden">
             <!-- Left Column -->
-            <div class="w-80 flex-shrink-0 bg-white border-r border-gray-200 flex flex-col relative">
-                <!-- Channel Tabs -->
-                <div class="border-b border-gray-200">
-                    <div class="flex overflow-x-auto scrollbar-hide">
-                        @foreach($this->channels as $channel)
-                            <button wire:click="selectChannel({{ $channel->id }})"
-                                    wire:key="channel-tab-{{ $channel->id }}"
-                                    class="flex-shrink-0 px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap
-                                           {{ $selectedChannelId === $channel->id 
-                                              ? 'border-green-500 text-green-600 bg-green-50' 
-                                              : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50' }}">
-                                <span class="flex items-center gap-2">
-                                    <span class="w-2 h-2 rounded-full bg-green-500"></span>
-                                    {{ Str::limit($channel->name, 12) }}
-                                </span>
-                            </button>
-                        @endforeach
-                    </div>
-                </div>
-
+            <div class="w-80 flex-shrink-0 bg-white border-r border-gray-200 flex flex-col">
                 <!-- Search & Filter -->
                 <div class="p-3 border-b border-gray-200 space-y-2">
                     <div class="relative">
@@ -75,6 +75,16 @@
                                 <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                             </svg>
                         </button>
+                        <!-- New Chat Button -->
+                        @if($canSend)
+                            <button wire:click="openNewChatModal" 
+                                    class="p-1.5 text-gray-500 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors"
+                                    title="Nueva conversación">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+                                </svg>
+                            </button>
+                        @endif
                     </div>
                 </div>
 
@@ -152,19 +162,6 @@
                         </div>
                     @endforelse
                 </div>
-
-                <!-- Floating New Chat Button -->
-                @if($canSend && $selectedChannelId)
-                    <div class="absolute bottom-4 right-4">
-                        <button wire:click="openNewChatModal" 
-                                class="w-14 h-14 bg-green-500 hover:bg-green-600 text-white rounded-full shadow-lg flex items-center justify-center transition-all hover:scale-105"
-                                title="Nuevo chat">
-                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
-                            </svg>
-                        </button>
-                    </div>
-                @endif
             </div>
 
             <!-- Center Column: Messages Area -->
@@ -187,6 +184,17 @@
                         <button wire:click="openTransferModal" class="p-2 text-gray-500 hover:bg-gray-200 rounded-full transition-colors" title="Transferir chat">
                             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/>
+                            </svg>
+                        </button>
+                        <!-- Toggle Contact Info Button -->
+                        <button @click="showContactInfo = !showContactInfo" 
+                                class="p-2 text-gray-500 hover:bg-gray-200 rounded-full transition-colors" 
+                                :title="showContactInfo ? 'Ocultar información' : 'Mostrar información'">
+                            <svg x-show="!showContactInfo" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
+                            </svg>
+                            <svg x-show="showContactInfo" x-cloak class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
                             </svg>
                         </button>
                     </div>
@@ -229,10 +237,14 @@
                                                 <img src="{{ $message->media_url }}" alt="Imagen" class="max-w-full max-h-64 rounded-lg cursor-pointer" loading="lazy">
                                             </a>
                                         @else
-                                            <div class="flex items-center gap-2 text-gray-500 py-1">
-                                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
-                                                <span class="text-sm italic">{{ $message->content ?: 'Imagen' }}</span>
-                                            </div>
+                                            <button wire:click="loadMessageMedia({{ $message->id }})" 
+                                                    wire:loading.attr="disabled"
+                                                    wire:target="loadMessageMedia({{ $message->id }})"
+                                                    class="flex items-center gap-2 text-gray-500 py-2 px-3 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors">
+                                                <svg wire:loading.remove wire:target="loadMessageMedia({{ $message->id }})" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                                                <svg wire:loading wire:target="loadMessageMedia({{ $message->id }})" class="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
+                                                <span class="text-sm">{{ $message->content ?: 'Cargar imagen' }}</span>
+                                            </button>
                                         @endif
                                         @if($message->content && $message->content !== '[Media]' && $message->content !== '[Imagen]' && $message->media_url)
                                             <p class="text-sm text-gray-800 mt-1 pr-14">{{ $message->content }}</p>
@@ -241,25 +253,44 @@
                                         @if($message->media_url)
                                             <audio controls class="max-w-full"><source src="{{ $message->media_url }}" type="{{ $message->media_mime_type ?? 'audio/ogg' }}"></audio>
                                         @else
-                                            <div class="flex items-center gap-2 text-gray-500 py-1">
-                                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/></svg>
-                                                <span class="text-sm italic">Audio</span>
-                                            </div>
+                                            <button wire:click="loadMessageMedia({{ $message->id }})" 
+                                                    wire:loading.attr="disabled"
+                                                    wire:target="loadMessageMedia({{ $message->id }})"
+                                                    class="flex items-center gap-2 text-gray-500 py-2 px-3 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors">
+                                                <svg wire:loading.remove wire:target="loadMessageMedia({{ $message->id }})" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/></svg>
+                                                <svg wire:loading wire:target="loadMessageMedia({{ $message->id }})" class="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
+                                                <span class="text-sm">Cargar audio</span>
+                                            </button>
                                         @endif
                                     @elseif($message->type === 'document')
-                                        <div class="flex items-center gap-2 p-2 bg-gray-100 rounded-lg {{ $message->media_url ? 'hover:bg-gray-200 cursor-pointer' : '' }}"
-                                             @if($message->media_url) onclick="window.open('{{ $message->media_url }}', '_blank')" @endif>
-                                            <svg class="w-8 h-8 text-gray-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
-                                            <span class="text-sm text-gray-700">{{ $message->content ?: 'Documento' }}</span>
-                                        </div>
+                                        @if($message->media_url)
+                                            <div class="flex items-center gap-2 p-2 bg-gray-100 rounded-lg hover:bg-gray-200 cursor-pointer"
+                                                 onclick="window.open('{{ $message->media_url }}', '_blank')">
+                                                <svg class="w-8 h-8 text-gray-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                                                <span class="text-sm text-gray-700">{{ $message->content ?: 'Documento' }}</span>
+                                            </div>
+                                        @else
+                                            <button wire:click="loadMessageMedia({{ $message->id }})" 
+                                                    wire:loading.attr="disabled"
+                                                    wire:target="loadMessageMedia({{ $message->id }})"
+                                                    class="flex items-center gap-2 p-2 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors">
+                                                <svg wire:loading.remove wire:target="loadMessageMedia({{ $message->id }})" class="w-8 h-8 text-gray-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                                                <svg wire:loading wire:target="loadMessageMedia({{ $message->id }})" class="w-8 h-8 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
+                                                <span class="text-sm text-gray-700">{{ $message->content ?: 'Cargar documento' }}</span>
+                                            </button>
+                                        @endif
                                     @elseif($message->type === 'video')
                                         @if($message->media_url)
                                             <video controls class="max-w-full max-h-64 rounded-lg"><source src="{{ $message->media_url }}" type="{{ $message->media_mime_type ?? 'video/mp4' }}"></video>
                                         @else
-                                            <div class="flex items-center gap-2 text-gray-500 py-1">
-                                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
-                                                <span class="text-sm italic">Video</span>
-                                            </div>
+                                            <button wire:click="loadMessageMedia({{ $message->id }})" 
+                                                    wire:loading.attr="disabled"
+                                                    wire:target="loadMessageMedia({{ $message->id }})"
+                                                    class="flex items-center gap-2 text-gray-500 py-2 px-3 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors">
+                                                <svg wire:loading.remove wire:target="loadMessageMedia({{ $message->id }})" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+                                                <svg wire:loading wire:target="loadMessageMedia({{ $message->id }})" class="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
+                                                <span class="text-sm">Cargar video</span>
+                                            </button>
                                         @endif
                                     @elseif($message->type === 'contact')
                                         <div class="flex items-center gap-2 p-2 bg-gray-100 rounded-lg">
@@ -513,7 +544,14 @@
 
             <!-- Right Column: Contact Info Panel -->
             @if($selectedContactId && $this->selectedContact)
-                <div class="w-80 flex-shrink-0 bg-white border-l border-gray-200 overflow-y-auto">
+                <div x-show="showContactInfo" 
+                     x-transition:enter="transition ease-out duration-200"
+                     x-transition:enter-start="opacity-0 translate-x-4"
+                     x-transition:enter-end="opacity-100 translate-x-0"
+                     x-transition:leave="transition ease-in duration-150"
+                     x-transition:leave-start="opacity-100 translate-x-0"
+                     x-transition:leave-end="opacity-0 translate-x-4"
+                     class="w-80 flex-shrink-0 bg-white border-l border-gray-200 overflow-y-auto">
                     <livewire:chat.contact-info :contact="$this->selectedContact" :channel-id="$selectedChannelId" :key="'contact-info-'.$selectedContactId" />
                 </div>
             @endif

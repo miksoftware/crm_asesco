@@ -818,6 +818,7 @@ class Index extends Component
 
     /**
      * Sync messages from Evolution API for the current channel.
+     * Optimized to avoid timeout - does NOT download media during sync.
      */
     public function syncMessages(): void
     {
@@ -841,10 +842,10 @@ class Index extends Component
             
             $imported = 0;
             $page = 1;
-            $maxPages = 20;
+            $maxPages = 10; // Reduced from 20 to avoid timeout
 
             while ($page <= $maxPages) {
-                $result = $evolutionApi->fetchAllMessages($channel->instance_name, $page, 100);
+                $result = $evolutionApi->fetchAllMessages($channel->instance_name, $page, 50); // Reduced batch size
 
                 if (!$result['success']) {
                     Log::error('Error fetching messages from Evolution API', ['error' => $result['error'] ?? 'Unknown']);
@@ -859,7 +860,7 @@ class Index extends Component
                 }
 
                 foreach ($records as $msgData) {
-                    if ($this->processImportedMessage($channel, $msgData, $evolutionApi)) {
+                    if ($this->processImportedMessageFast($channel, $msgData)) {
                         $imported++;
                     }
                 }
@@ -941,6 +942,15 @@ class Index extends Component
      */
     private function processImportedMessage(Channel $channel, array $msgData, EvolutionApiService $evolutionApi): bool
     {
+        return $this->processImportedMessageFast($channel, $msgData);
+    }
+
+    /**
+     * Fast message import - does NOT download media to avoid timeout.
+     * Media will be downloaded on-demand when viewing the message.
+     */
+    private function processImportedMessageFast(Channel $channel, array $msgData): bool
+    {
         $key = $msgData['key'] ?? [];
         $messageId = $key['id'] ?? null;
         $remoteJid = $key['remoteJid'] ?? null;
@@ -954,7 +964,7 @@ class Index extends Component
             return false;
         }
 
-        // Skip status/broadcast messages (status@broadcast)
+        // Skip status/broadcast messages
         if (str_contains($remoteJid, '@broadcast') || str_contains($remoteJid, 'status@')) {
             return false;
         }
@@ -971,12 +981,7 @@ class Index extends Component
 
         // Extract phone number from JID
         $phoneNumber = $this->extractPhoneNumber($remoteJid);
-        if (!$phoneNumber) {
-            return false;
-        }
-
-        // Skip if phone number looks invalid (too short or special numbers)
-        if (strlen($phoneNumber) < 8) {
+        if (!$phoneNumber || strlen($phoneNumber) < 8) {
             return false;
         }
 
@@ -994,16 +999,12 @@ class Index extends Component
 
         // Extract message content and type
         $messageContent = $msgData['message'] ?? [];
-        $messageType = $msgData['messageType'] ?? 'conversation';
         
-        // Determine type and content based on message type
+        // Determine type and content
         $type = 'text';
         $content = null;
-        $mediaUrl = null;
         $mediaMimeType = null;
-        $needsMediaDownload = false;
 
-        // Handle different message types
         if (isset($messageContent['conversation'])) {
             $type = 'text';
             $content = $messageContent['conversation'];
@@ -1012,26 +1013,22 @@ class Index extends Component
             $content = $messageContent['extendedTextMessage']['text'] ?? null;
         } elseif (isset($messageContent['imageMessage'])) {
             $type = 'image';
-            $content = $messageContent['imageMessage']['caption'] ?? null;
+            $content = $messageContent['imageMessage']['caption'] ?? '[Imagen]';
             $mediaMimeType = $messageContent['imageMessage']['mimetype'] ?? 'image/jpeg';
-            $needsMediaDownload = true;
         } elseif (isset($messageContent['videoMessage'])) {
             $type = 'video';
-            $content = $messageContent['videoMessage']['caption'] ?? null;
+            $content = $messageContent['videoMessage']['caption'] ?? '[Video]';
             $mediaMimeType = $messageContent['videoMessage']['mimetype'] ?? 'video/mp4';
-            $needsMediaDownload = true;
         } elseif (isset($messageContent['audioMessage']) || isset($messageContent['pttMessage'])) {
             $type = 'audio';
             $content = '[Audio]';
             $audioMsg = $messageContent['audioMessage'] ?? $messageContent['pttMessage'] ?? [];
             $mediaMimeType = $audioMsg['mimetype'] ?? 'audio/ogg; codecs=opus';
-            $needsMediaDownload = true;
         } elseif (isset($messageContent['documentMessage']) || isset($messageContent['documentWithCaptionMessage'])) {
             $type = 'document';
             $docMsg = $messageContent['documentMessage'] ?? $messageContent['documentWithCaptionMessage']['message']['documentMessage'] ?? [];
             $content = $docMsg['fileName'] ?? $docMsg['title'] ?? '[Documento]';
             $mediaMimeType = $docMsg['mimetype'] ?? 'application/octet-stream';
-            $needsMediaDownload = true;
         } elseif (isset($messageContent['contactMessage']) || isset($messageContent['contactsArrayMessage'])) {
             $type = 'contact';
             $contactMsg = $messageContent['contactMessage'] ?? ($messageContent['contactsArrayMessage']['contacts'][0] ?? []);
@@ -1044,7 +1041,7 @@ class Index extends Component
             $type = 'sticker';
             $content = '[Sticker]';
         } elseif (isset($messageContent['reactionMessage'])) {
-            return false; // Skip reactions
+            return false;
         } elseif (isset($messageContent['protocolMessage'])) {
             $protoType = $messageContent['protocolMessage']['type'] ?? null;
             if ($protoType === 'REVOKE' || $protoType === 0) {
@@ -1061,32 +1058,8 @@ class Index extends Component
             $pollMsg = $messageContent['pollCreationMessage'] ?? $messageContent['pollCreationMessageV3'] ?? [];
             $content = '📊 ' . ($pollMsg['name'] ?? 'Encuesta');
         } else {
-            // For unknown types, use 'other' type
             $type = 'other';
             $content = '[Mensaje no soportado]';
-        }
-
-        // Download media if needed
-        if ($needsMediaDownload && $messageId && $remoteJid) {
-            try {
-                $mediaResult = $evolutionApi->getMediaBase64($channel->instance_name, $messageId, $remoteJid);
-                
-                if ($mediaResult['success'] && !empty($mediaResult['data']['base64'])) {
-                    $base64Data = $mediaResult['data']['base64'];
-                    
-                    // Determine file extension
-                    $extension = $this->getExtensionFromMimeType($mediaMimeType);
-                    $filename = $type . '_' . uniqid() . '.' . $extension;
-                    $path = 'chat-media/' . date('Y/m') . '/' . $filename;
-                    
-                    // Save to storage
-                    Storage::disk('public')->put($path, base64_decode($base64Data));
-                    $mediaUrl = Storage::disk('public')->url($path);
-                }
-            } catch (\Exception $e) {
-                Log::warning('Failed to download media', ['messageId' => $messageId, 'error' => $e->getMessage()]);
-                // Continue without media - message will still be saved
-            }
         }
 
         // Parse timestamp
@@ -1169,6 +1142,51 @@ class Index extends Component
         return Contact::where('channel_id', $this->selectedChannelId)
             ->whereHas('messages')
             ->exists();
+    }
+
+    /**
+     * Load media for a message on-demand.
+     */
+    public function loadMessageMedia(int $messageId): void
+    {
+        $message = Message::find($messageId);
+        if (!$message || $message->media_url) {
+            return; // Already has media or not found
+        }
+
+        if (!in_array($message->type, ['image', 'audio', 'video', 'document'])) {
+            return; // Not a media message
+        }
+
+        $contact = Contact::find($message->contact_id);
+        $channel = Channel::find($message->channel_id);
+        
+        if (!$contact || !$channel) {
+            return;
+        }
+
+        $evolutionApi = app(EvolutionApiService::class);
+
+        try {
+            $remoteJid = $contact->remote_jid ?? $contact->phone_number . '@s.whatsapp.net';
+            $mediaResult = $evolutionApi->getMediaBase64($channel->instance_name, $message->message_id, $remoteJid);
+            
+            if ($mediaResult['success'] && !empty($mediaResult['data']['base64'])) {
+                $base64Data = $mediaResult['data']['base64'];
+                
+                $extension = $this->getExtensionFromMimeType($message->media_mime_type ?? 'application/octet-stream');
+                $filename = $message->type . '_' . uniqid() . '.' . $extension;
+                $path = 'chat-media/' . date('Y/m') . '/' . $filename;
+                
+                Storage::disk('public')->put($path, base64_decode($base64Data));
+                $mediaUrl = Storage::disk('public')->url($path);
+                
+                $message->update(['media_url' => $mediaUrl]);
+                unset($this->messages);
+            }
+        } catch (\Exception $e) {
+            Log::warning('Failed to load media on-demand', ['messageId' => $messageId, 'error' => $e->getMessage()]);
+        }
     }
 
     public function render()
