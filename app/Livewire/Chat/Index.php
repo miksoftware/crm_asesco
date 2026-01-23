@@ -560,11 +560,11 @@ class Index extends Component
     public function startNewChat(): void
     {
         $this->validate([
-            'newChatNumber' => 'required|min:8|max:20',
+            'newChatNumber' => 'required|min:10|max:20',
             'newChatMessage' => 'required|min:1|max:4096',
         ], [
             'newChatNumber.required' => 'El número es requerido',
-            'newChatNumber.min' => 'El número debe tener al menos 8 dígitos',
+            'newChatNumber.min' => 'El número debe tener al menos 10 dígitos',
             'newChatMessage.required' => 'El mensaje es requerido',
         ]);
 
@@ -578,8 +578,15 @@ class Index extends Component
         $evolutionApi = app(EvolutionApiService::class);
 
         try {
-            // Normalize phone number
+            // Normalize phone number - remove all non-numeric characters
             $phoneNumber = preg_replace('/[^0-9]/', '', $this->newChatNumber);
+
+            // Validate minimum length
+            if (strlen($phoneNumber) < 10) {
+                $this->isCheckingNumber = false;
+                $this->dispatch('toast', type: 'error', message: 'El número debe tener al menos 10 dígitos');
+                return;
+            }
 
             // Check if number exists on WhatsApp
             $checkResult = $evolutionApi->checkWhatsAppNumber($channel->instance_name, $phoneNumber);
@@ -596,26 +603,37 @@ class Index extends Component
                 return;
             }
 
-            // Number exists, get the JID
+            // Get the REAL JID from WhatsApp (this is the actual number registered)
             $remoteJid = $checkResult['jid'] ?? $phoneNumber . '@s.whatsapp.net';
+            
+            // Extract the REAL phone number from the JID (may be different from input)
+            $realPhoneNumber = $this->extractPhoneNumber($remoteJid) ?? $phoneNumber;
 
-            // Find or create contact
-            $contact = Contact::firstOrCreate(
-                [
+            // Find existing contact by remote_jid OR real phone number
+            $contact = Contact::where('channel_id', $this->selectedChannelId)
+                ->where(function ($q) use ($remoteJid, $realPhoneNumber, $phoneNumber) {
+                    $q->where('remote_jid', $remoteJid)
+                      ->orWhere('phone_number', $realPhoneNumber)
+                      ->orWhere('phone_number', $phoneNumber);
+                })
+                ->first();
+
+            if (!$contact) {
+                // Create new contact with the REAL phone number
+                $contact = Contact::create([
                     'channel_id' => $this->selectedChannelId,
-                    'phone_number' => $phoneNumber,
-                ],
-                [
+                    'phone_number' => $realPhoneNumber,
                     'remote_jid' => $remoteJid,
-                ]
-            );
-
-            // Update remote_jid if it was missing
-            if (!$contact->remote_jid && $remoteJid) {
-                $contact->update(['remote_jid' => $remoteJid]);
+                ]);
+            } else {
+                // Update contact with correct JID if needed
+                $contact->update([
+                    'remote_jid' => $remoteJid,
+                    'phone_number' => $realPhoneNumber, // Use the real number
+                ]);
             }
 
-            // Send the message
+            // Send the message using the verified JID
             $response = $evolutionApi->sendTextMessage(
                 $channel->instance_name,
                 $remoteJid,
@@ -900,8 +918,8 @@ class Index extends Component
     {
         $invalidContacts = Contact::where('channel_id', $channelId)
             ->where(function ($query) {
-                // Numbers too short (less than 8 digits)
-                $query->whereRaw('LENGTH(phone_number) < 8')
+                // Numbers too short (less than 10 digits) - international numbers need at least 10
+                $query->whereRaw('LENGTH(phone_number) < 10')
                     // Or contains "status" 
                     ->orWhere('phone_number', 'like', '%status%')
                     // Or remote_jid contains broadcast
@@ -911,13 +929,19 @@ class Index extends Component
                     ->orWhere('remote_jid', 'like', '%@newsletter%')
                     // Or remote_jid contains group
                     ->orWhere('remote_jid', 'like', '%@g.us%')
+                    // Or remote_jid contains lid (linked device IDs)
+                    ->orWhere('remote_jid', 'like', '%@lid%')
                     // Or phone number is not numeric
                     ->orWhereRaw("phone_number REGEXP '[^0-9]'")
-                    // Or push_name is "Você" (WhatsApp status indicator)
-                    ->orWhere('push_name', 'Você')
-                    ->orWhere('push_name', 'Voce')
-                    ->orWhere('name', 'Você')
-                    ->orWhere('name', 'Voce');
+                    // Or push_name is "Você" (WhatsApp status indicator) - case insensitive
+                    ->orWhereRaw("LOWER(push_name) = 'você'")
+                    ->orWhereRaw("LOWER(push_name) = 'voce'")
+                    ->orWhereRaw("LOWER(name) = 'você'")
+                    ->orWhereRaw("LOWER(name) = 'voce'")
+                    // Or push_name contains only special characters or is empty-ish
+                    ->orWhereRaw("push_name REGEXP '^[^a-zA-Z0-9]+$'")
+                    // Or phone_number starts with 0 (invalid international format)
+                    ->orWhere('phone_number', 'like', '0%');
             })
             ->get();
 
@@ -926,6 +950,8 @@ class Index extends Component
         foreach ($invalidContacts as $contact) {
             // Delete messages first (due to foreign key)
             $contact->messages()->delete();
+            // Delete labels
+            $contact->labelRelations()->detach();
             // Delete the contact
             $contact->delete();
         }
@@ -974,6 +1000,11 @@ class Index extends Component
             return false;
         }
 
+        // Skip linked device IDs (format: number:device@lid)
+        if (str_contains($remoteJid, '@lid')) {
+            return false;
+        }
+
         // Check if message already exists
         if (Message::where('message_id', $messageId)->exists()) {
             return false;
@@ -981,21 +1012,50 @@ class Index extends Component
 
         // Extract phone number from JID
         $phoneNumber = $this->extractPhoneNumber($remoteJid);
-        if (!$phoneNumber || strlen($phoneNumber) < 8) {
+        if (!$phoneNumber) {
             return false;
         }
 
-        // Create or update contact
-        $contact = Contact::updateOrCreate(
-            [
+        // Validate phone number - must be at least 10 digits (international format)
+        if (strlen($phoneNumber) < 10) {
+            return false;
+        }
+
+        // Skip if phone number starts with 0 (invalid international format)
+        if (str_starts_with($phoneNumber, '0')) {
+            return false;
+        }
+
+        // Skip "Você" contacts (WhatsApp status)
+        $pushName = $msgData['pushName'] ?? null;
+        if ($pushName && in_array(strtolower($pushName), ['você', 'voce', 'você ', 'voce '])) {
+            return false;
+        }
+
+        // Create or update contact - use remote_jid as primary key to avoid duplicates
+        $contact = Contact::where('channel_id', $channel->id)
+            ->where(function ($q) use ($phoneNumber, $remoteJid) {
+                $q->where('phone_number', $phoneNumber)
+                  ->orWhere('remote_jid', $remoteJid);
+            })
+            ->first();
+
+        if (!$contact) {
+            $contact = Contact::create([
                 'channel_id' => $channel->id,
                 'phone_number' => $phoneNumber,
-            ],
-            [
                 'remote_jid' => $remoteJid,
-                'push_name' => $msgData['pushName'] ?? null,
-            ]
-        );
+                'push_name' => $pushName,
+            ]);
+        } else {
+            // Update remote_jid if different (prefer the s.whatsapp.net format)
+            if ($contact->remote_jid !== $remoteJid && str_contains($remoteJid, '@s.whatsapp.net')) {
+                $contact->update([
+                    'remote_jid' => $remoteJid,
+                    'push_name' => $pushName ?? $contact->push_name,
+                ]);
+            }
+        }
 
         // Extract message content and type
         $messageContent = $msgData['message'] ?? [];
