@@ -75,11 +75,32 @@ class FixLidContacts extends Command
     {
         $this->line('  → Buscando contactos con LID...');
         
-        // Contactos que tienen LID en remote_jid o phone_number que no parece teléfono real
+        // LIDs are contacts that:
+        // 1. Have @lid in remote_jid, OR
+        // 2. Have phone_number that doesn't start with valid country codes (57 for Colombia, 1 for US, etc.)
+        // Colombian numbers: 57 + 10 digits = 12 digits total, starting with 573
+        // LIDs are typically 15+ digits and don't start with valid country codes
+        
         $lidContacts = Contact::where('channel_id', $channel->id)
             ->where(function ($q) {
                 $q->where('remote_jid', 'like', '%@lid')
-                  ->orWhereRaw("phone_number NOT REGEXP '^[1-9][0-9]{9,14}$'");
+                  // Numbers that are too long (>15 digits) are likely LIDs
+                  ->orWhereRaw("LENGTH(phone_number) > 15")
+                  // Numbers that don't start with common country codes
+                  ->orWhere(function ($q2) {
+                      $q2->whereRaw("LENGTH(phone_number) >= 12")
+                         ->whereRaw("phone_number NOT LIKE '57%'")  // Colombia
+                         ->whereRaw("phone_number NOT LIKE '1%'")   // US/Canada
+                         ->whereRaw("phone_number NOT LIKE '52%'")  // Mexico
+                         ->whereRaw("phone_number NOT LIKE '54%'")  // Argentina
+                         ->whereRaw("phone_number NOT LIKE '55%'")  // Brazil
+                         ->whereRaw("phone_number NOT LIKE '56%'")  // Chile
+                         ->whereRaw("phone_number NOT LIKE '58%'")  // Venezuela
+                         ->whereRaw("phone_number NOT LIKE '51%'")  // Peru
+                         ->whereRaw("phone_number NOT LIKE '593%'") // Ecuador
+                         ->whereRaw("phone_number NOT LIKE '34%'")  // Spain
+                         ->whereRaw("phone_number NOT LIKE '44%'"); // UK
+                  });
             })
             ->get();
         
@@ -88,65 +109,65 @@ class FixLidContacts extends Command
             return;
         }
         
-        $this->line("    Encontrados: {$lidContacts->count()} contactos con LID");
+        $this->line("    Encontrados: {$lidContacts->count()} contactos con LID potencial");
         
         $evolutionApi = $verify ? app(EvolutionApiService::class) : null;
         
         foreach ($lidContacts as $contact) {
-            $lid = $this->extractLid($contact);
+            $lid = $contact->phone_number;
             
-            if (!$lid) {
-                continue;
+            $this->line("    Procesando LID: {$lid} (Contact ID: {$contact->id})");
+            
+            // Try to find a matching contact with same push_name in same channel
+            $matchingContact = null;
+            
+            if ($contact->push_name) {
+                $matchingContact = Contact::where('channel_id', $channel->id)
+                    ->where('id', '!=', $contact->id)
+                    ->where('push_name', $contact->push_name)
+                    ->whereRaw("phone_number LIKE '57%'") // Colombian number
+                    ->whereRaw("LENGTH(phone_number) BETWEEN 10 AND 13")
+                    ->first();
             }
             
-            // Buscar en tabla de mapeos
-            $phoneNumber = LidMapping::findPhoneByLid($lid);
-            
-            if (!$phoneNumber && $verify && $evolutionApi) {
-                // Intentar verificar con Evolution API si el LID parece un número
-                // (algunos LIDs son números reales con sufijo)
-                $potentialNumber = preg_replace('/[^0-9]/', '', $lid);
-                if (strlen($potentialNumber) >= 10) {
-                    $this->line("    Verificando {$potentialNumber} con Evolution API...");
-                    $result = $evolutionApi->checkWhatsAppNumber($channel->instance_name, $potentialNumber);
-                    if ($result['success'] && $result['exists']) {
-                        $phoneNumber = $this->extractPhoneFromJid($result['jid'] ?? $potentialNumber);
-                        
-                        // Guardar el mapeo para futuro uso
-                        if ($phoneNumber && $phoneNumber !== $lid) {
-                            LidMapping::createMapping($lid, $phoneNumber, null, $channel->id);
-                            $this->line("    ✓ Mapeo creado: {$lid} → {$phoneNumber}");
-                        }
-                    }
-                }
-            }
-            
-            if ($phoneNumber) {
-                $this->line("    LID {$lid} → Teléfono {$phoneNumber}");
+            if ($matchingContact) {
+                $this->info("      → Encontrado match por nombre: {$matchingContact->phone_number}");
                 
                 if (!$dryRun) {
-                    // Buscar si ya existe un contacto con este número
+                    $this->mergeContacts($matchingContact, $contact);
+                }
+                $stats['contacts_merged']++;
+                $stats['lids_resolved']++;
+            } else {
+                // Check LID mapping table
+                $phoneNumber = \App\Models\LidMapping::findPhoneByLid($lid);
+                
+                if ($phoneNumber) {
+                    $this->info("      → Encontrado en tabla de mapeos: {$phoneNumber}");
+                    
                     $existingContact = Contact::where('channel_id', $channel->id)
                         ->where('phone_number', $phoneNumber)
                         ->where('id', '!=', $contact->id)
                         ->first();
                     
-                    if ($existingContact) {
-                        // Fusionar con el existente
+                    if ($existingContact && !$dryRun) {
                         $this->mergeContacts($existingContact, $contact);
                         $stats['contacts_merged']++;
-                    } else {
-                        // Actualizar este contacto
+                    } elseif (!$dryRun) {
                         $contact->update([
                             'phone_number' => $phoneNumber,
                             'remote_jid' => $phoneNumber . '@s.whatsapp.net',
                         ]);
                     }
+                    $stats['lids_resolved']++;
+                } elseif ($verify && $evolutionApi) {
+                    // Try to verify with Evolution API
+                    $this->line("      → Verificando con Evolution API...");
+                    // Skip API verification for now - too slow for 9000 contacts
+                    $this->warn("      ⚠ No se pudo resolver - sin mapeo disponible");
+                } else {
+                    $this->warn("      ⚠ No se pudo resolver LID: {$lid}");
                 }
-                
-                $stats['lids_resolved']++;
-            } else {
-                $this->warn("    ⚠ No se pudo resolver LID: {$lid}");
             }
         }
     }
