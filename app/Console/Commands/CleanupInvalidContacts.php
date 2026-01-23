@@ -42,7 +42,6 @@ class CleanupInvalidContacts extends Command
     {
         $invalidContacts = Contact::where('channel_id', $channelId)
             ->where(function ($query) {
-                // Only remove truly invalid contacts
                 $query
                     // Status broadcasts
                     ->where('remote_jid', 'like', '%@broadcast%')
@@ -51,14 +50,11 @@ class CleanupInvalidContacts extends Command
                     ->orWhere('remote_jid', 'like', '%@newsletter%')
                     // Groups
                     ->orWhere('remote_jid', 'like', '%@g.us%')
-                    // "Você" status contacts (exact match, case insensitive)
+                    // "Você" status contacts
                     ->orWhereRaw("LOWER(TRIM(push_name)) = 'você'")
                     ->orWhereRaw("LOWER(TRIM(push_name)) = 'voce'")
                     ->orWhereRaw("LOWER(TRIM(name)) = 'você'")
-                    ->orWhereRaw("LOWER(TRIM(name)) = 'voce'")
-                    // Invalid phone numbers (too long - WhatsApp internal IDs, not real phones)
-                    // Real phone numbers have max 13 digits (country code + number)
-                    ->orWhereRaw("LENGTH(phone_number) > 13");
+                    ->orWhereRaw("LOWER(TRIM(name)) = 'voce'");
             })
             ->get();
 

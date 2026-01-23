@@ -912,13 +912,13 @@ class Index extends Component
     }
 
     /**
-     * Clean up invalid contacts (status broadcasts, invalid numbers, etc.)
+     * Clean up invalid contacts (status broadcasts, groups, newsletters only)
+     * SIMPLIFIED: Only remove truly invalid contacts, not based on phone number length
      */
     private function cleanupInvalidContacts(int $channelId): int
     {
         $invalidContacts = Contact::where('channel_id', $channelId)
             ->where(function ($query) {
-                // Only remove truly invalid contacts
                 $query
                     // Status broadcasts
                     ->where('remote_jid', 'like', '%@broadcast%')
@@ -927,14 +927,11 @@ class Index extends Component
                     ->orWhere('remote_jid', 'like', '%@newsletter%')
                     // Groups
                     ->orWhere('remote_jid', 'like', '%@g.us%')
-                    // "Você" status contacts (exact match, case insensitive)
+                    // "Você" status contacts
                     ->orWhereRaw("LOWER(TRIM(push_name)) = 'você'")
                     ->orWhereRaw("LOWER(TRIM(push_name)) = 'voce'")
                     ->orWhereRaw("LOWER(TRIM(name)) = 'você'")
-                    ->orWhereRaw("LOWER(TRIM(name)) = 'voce'")
-                    // Invalid phone numbers (too long - WhatsApp internal IDs, not real phones)
-                    // Real phone numbers have max 13 digits (country code + number)
-                    ->orWhereRaw("LENGTH(phone_number) > 13");
+                    ->orWhereRaw("LOWER(TRIM(name)) = 'voce'");
             })
             ->get();
 
@@ -967,6 +964,9 @@ class Index extends Component
     /**
      * Fast message import - does NOT download media to avoid timeout.
      * Media will be downloaded on-demand when viewing the message.
+     * 
+     * SIMPLIFIED: Only skip groups, broadcasts, newsletters. Accept all other messages.
+     * For @lid JIDs, extract the phone number and unify with existing contacts.
      */
     private function processImportedMessageFast(Channel $channel, array $msgData): bool
     {
@@ -978,6 +978,7 @@ class Index extends Component
             return false;
         }
 
+        // ONLY skip these specific types - nothing else
         // Skip groups
         if (str_contains($remoteJid, '@g.us')) {
             return false;
@@ -998,34 +999,6 @@ class Index extends Component
             return false;
         }
 
-        // Extract phone number from JID (works for both @s.whatsapp.net and @lid formats)
-        $phoneNumber = $this->extractPhoneNumber($remoteJid);
-        if (!$phoneNumber) {
-            return false;
-        }
-
-        // Basic validation - at least 10 digits and max 13 (real phone numbers)
-        // Must start with valid country codes (1-3 digits starting with 1-9)
-        if (strlen($phoneNumber) < 10 || strlen($phoneNumber) > 13) {
-            return false;
-        }
-        
-        // Skip numbers that don't look like real phone numbers
-        // WhatsApp internal IDs often start with unusual patterns
-        // Valid country codes: 1 (US/CA), 52 (MX), 54 (AR), 55 (BR), 56 (CL), 57 (CO), 58 (VE), etc.
-        $firstDigits = substr($phoneNumber, 0, 2);
-        $validPrefixes = ['1', '52', '53', '54', '55', '56', '57', '58', '59', '60', '61', '62', '63', '64', '65', '66', '81', '82', '84', '86', '90', '91', '92', '93', '94', '95', '98'];
-        $isValidPrefix = false;
-        foreach ($validPrefixes as $prefix) {
-            if (str_starts_with($phoneNumber, $prefix)) {
-                $isValidPrefix = true;
-                break;
-            }
-        }
-        if (!$isValidPrefix) {
-            return false;
-        }
-
         // Skip "Você" contacts (WhatsApp status)
         $pushName = $msgData['pushName'] ?? null;
         $pushNameLower = $pushName ? strtolower(trim($pushName)) : '';
@@ -1033,29 +1006,56 @@ class Index extends Component
             return false;
         }
 
-        // IMPORTANT: Always search by phone number to unify chats
-        // This ensures messages from @lid JIDs go to the same contact as @s.whatsapp.net
+        // Extract phone number from JID
+        // For @s.whatsapp.net: 573001234567@s.whatsapp.net -> 573001234567
+        // For @lid: 573001234567:45@lid -> 573001234567
+        $phoneNumber = $this->extractPhoneNumber($remoteJid);
+        
+        // If we couldn't extract a phone number, use the full JID part before @
+        if (!$phoneNumber) {
+            $phoneNumber = explode('@', $remoteJid)[0];
+            // Remove any :XX suffix from lid format
+            if (str_contains($phoneNumber, ':')) {
+                $phoneNumber = explode(':', $phoneNumber)[0];
+            }
+        }
+
+        // Minimal validation - just ensure we have something
+        if (empty($phoneNumber) || strlen($phoneNumber) < 8) {
+            return false;
+        }
+
+        // Search for existing contact by phone number (to unify @lid and @s.whatsapp.net)
         $contact = Contact::where('channel_id', $channel->id)
             ->where('phone_number', $phoneNumber)
             ->first();
 
+        // Standard JID format for sending messages
+        $standardJid = $phoneNumber . '@s.whatsapp.net';
+
         if (!$contact) {
-            // Create new contact - always use the standard JID format for sending
-            $standardJid = $phoneNumber . '@s.whatsapp.net';
+            // Create new contact
             $contact = Contact::create([
                 'channel_id' => $channel->id,
                 'phone_number' => $phoneNumber,
-                'remote_jid' => $standardJid, // Always use standard format
+                'remote_jid' => $standardJid,
                 'push_name' => $pushName,
             ]);
         } else {
-            // Update push_name if we have a new one and contact doesn't have one
+            // Update contact if needed
+            $updates = [];
+            
             if ($pushName && !$contact->push_name) {
-                $contact->update(['push_name' => $pushName]);
+                $updates['push_name'] = $pushName;
             }
-            // Ensure remote_jid is in standard format (not @lid)
-            if (!$contact->remote_jid || str_contains($contact->remote_jid, '@lid')) {
-                $contact->update(['remote_jid' => $phoneNumber . '@s.whatsapp.net']);
+            
+            // Always ensure remote_jid is in standard format
+            if ($contact->remote_jid !== $standardJid) {
+                $updates['remote_jid'] = $standardJid;
+            }
+            
+            if (!empty($updates)) {
+                $contact->update($updates);
             }
         }
 
