@@ -118,7 +118,7 @@ class MessageService
      * Process an incoming message from Evolution API webhook.
      * Requirements: 9.1
      * 
-     * IMPORTANT: Handles LID JIDs by checking the lid_mappings table.
+     * IMPORTANT: Handles LID JIDs using remoteJidAlt field from Evolution API.
      */
     public function processIncomingMessage(array $webhookData): Message
     {
@@ -130,37 +130,56 @@ class MessageService
         
         // Extract message data
         $remoteJid = $data['key']['remoteJid'] ?? '';
+        $remoteJidAlt = $data['key']['remoteJidAlt'] ?? null;
         $messageId = $data['key']['id'] ?? null;
         $pushName = $data['pushName'] ?? null;
         
-        // Extract phone number - handle LID format
-        $phoneNumber = $this->extractPhoneFromJid($remoteJid);
+        // ⭐ PRIORITY: Use remoteJid first, but check remoteJidAlt for real phone
+        $phoneNumber = null;
+        $primaryJid = $remoteJid;
         
-        // Check if this is a LID and try to resolve it
+        // Extract from primary JID
         $jidPart = explode('@', $remoteJid)[0];
-        $isLid = str_contains($remoteJid, '@lid') || str_contains($jidPart, ':');
         $cleanJidPart = explode(':', $jidPart)[0];
         $isRealPhone = preg_match('/^[1-9]\d{9,14}$/', $cleanJidPart);
         
-        if ($isLid && !$isRealPhone) {
-            // This is a true LID - try to resolve it
-            $resolvedPhone = \App\Models\LidMapping::findPhoneByLid($cleanJidPart);
-            if ($resolvedPhone) {
-                $phoneNumber = $resolvedPhone;
-                Log::info('Resolved LID to phone number in webhook', [
+        if ($isRealPhone) {
+            $phoneNumber = $cleanJidPart;
+        } elseif ($remoteJidAlt) {
+            // Primary JID is LID, check alternative
+            $altJidPart = explode('@', $remoteJidAlt)[0];
+            $cleanAltPart = explode(':', $altJidPart)[0];
+            $isAltRealPhone = preg_match('/^[1-9]\d{9,14}$/', $cleanAltPart);
+            
+            if ($isAltRealPhone) {
+                $phoneNumber = $cleanAltPart;
+                Log::info('Using remoteJidAlt for phone number', [
+                    'remoteJid' => $remoteJid,
+                    'remoteJidAlt' => $remoteJidAlt,
+                    'phone' => $phoneNumber,
+                ]);
+            }
+        }
+        
+        // If still no phone, try LID mapping table
+        if (!$phoneNumber) {
+            $phoneNumber = \App\Models\LidMapping::findPhoneByLid($cleanJidPart);
+            if ($phoneNumber) {
+                Log::info('Resolved LID from mapping table', [
                     'lid' => $cleanJidPart,
                     'phone' => $phoneNumber,
                 ]);
-            } else {
-                Log::warning('Could not resolve LID in webhook', [
-                    'lid' => $cleanJidPart,
-                    'remoteJid' => $remoteJid,
-                ]);
-                // Use the LID as phone number for now - it will be updated when mapping is found
             }
-        } elseif ($isLid && $isRealPhone) {
-            // LID format but contains a real phone number
+        }
+        
+        // Last resort: use whatever we have
+        if (!$phoneNumber) {
             $phoneNumber = $cleanJidPart;
+            Log::warning('Could not resolve real phone number', [
+                'remoteJid' => $remoteJid,
+                'remoteJidAlt' => $remoteJidAlt,
+                'using' => $phoneNumber,
+            ]);
         }
         
         // Determine message type and content
@@ -189,7 +208,7 @@ class MessageService
             $contact = Contact::create([
                 'channel_id' => $channel->id,
                 'phone_number' => $phoneNumber,
-                'remote_jid' => $standardJid, // Always use standard format
+                'remote_jid' => $standardJid,
                 'push_name' => $pushName,
                 'labels' => [],
                 'metadata' => [],

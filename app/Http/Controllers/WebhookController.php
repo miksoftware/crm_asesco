@@ -52,12 +52,17 @@ class WebhookController extends Controller
         if (isset($payload['data']['key'])) {
             Log::info('=== WEBHOOK KEY FIELDS ===', [
                 'remoteJid' => $payload['data']['key']['remoteJid'] ?? 'NO EXISTE',
-                'senderPn' => $payload['data']['key']['senderPn'] ?? 'NO EXISTE',
-                'cleanedSenderPn' => $payload['data']['key']['cleanedSenderPn'] ?? 'NO EXISTE',
-                'senderLid' => $payload['data']['key']['senderLid'] ?? 'NO EXISTE',
-                'addressingMode' => $payload['data']['key']['addressingMode'] ?? 'NO EXISTE',
+                'remoteJidAlt' => $payload['data']['key']['remoteJidAlt'] ?? 'NO EXISTE',
                 'participant' => $payload['data']['key']['participant'] ?? 'NO EXISTE',
             ]);
+            
+            // ⭐ AUTO-CREATE LID MAPPING if both remoteJid and remoteJidAlt exist
+            $remoteJid = $payload['data']['key']['remoteJid'] ?? null;
+            $remoteJidAlt = $payload['data']['key']['remoteJidAlt'] ?? null;
+            
+            if ($remoteJid && $remoteJidAlt && $remoteJid !== $remoteJidAlt) {
+                $this->createLidMappingFromJids($remoteJid, $remoteJidAlt, $payload['instance'] ?? null);
+            }
         }
         
         // Log incoming webhook for debugging
@@ -372,6 +377,66 @@ class WebhookController extends Controller
         }
 
         return response()->json(['status' => 'processed']);
+    }
+
+    /**
+     * Create LID mapping from remoteJid and remoteJidAlt.
+     * 
+     * Evolution API sends:
+     * - remoteJid: The primary JID (usually the real phone number)
+     * - remoteJidAlt: The alternative JID (usually the LID)
+     */
+    private function createLidMappingFromJids(string $remoteJid, string $remoteJidAlt, ?string $instanceName): void
+    {
+        // Extract the identifier parts
+        $jid1Part = explode('@', $remoteJid)[0];
+        $jid2Part = explode('@', $remoteJidAlt)[0];
+        
+        // Clean any :XX suffix
+        $clean1 = explode(':', $jid1Part)[0];
+        $clean2 = explode(':', $jid2Part)[0];
+        
+        // Determine which is the phone and which is the LID
+        $isPhone1 = preg_match('/^[1-9]\d{9,14}$/', $clean1);
+        $isPhone2 = preg_match('/^[1-9]\d{9,14}$/', $clean2);
+        
+        $phoneNumber = null;
+        $lid = null;
+        
+        if ($isPhone1 && !$isPhone2) {
+            $phoneNumber = $clean1;
+            $lid = $clean2;
+        } elseif ($isPhone2 && !$isPhone1) {
+            $phoneNumber = $clean2;
+            $lid = $clean1;
+        } else {
+            // Both look like phones or both look like LIDs - can't determine
+            return;
+        }
+        
+        // Don't create mapping if LID looks like a phone number
+        if (preg_match('/^[1-9]\d{9,14}$/', $lid)) {
+            return;
+        }
+        
+        $channel = $instanceName ? \App\Models\Channel::where('instance_name', $instanceName)->first() : null;
+        
+        // Check if mapping already exists
+        $existing = LidMapping::where('lid', $lid)->first();
+        if (!$existing) {
+            LidMapping::create([
+                'lid' => $lid,
+                'phone_number' => $phoneNumber,
+                'channel_id' => $channel?->id,
+            ]);
+            
+            Log::info('LID mapping created from remoteJidAlt', [
+                'lid' => $lid,
+                'phone' => $phoneNumber,
+                'remoteJid' => $remoteJid,
+                'remoteJidAlt' => $remoteJidAlt,
+            ]);
+        }
     }
 
     /**
