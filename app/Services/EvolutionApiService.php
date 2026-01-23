@@ -178,23 +178,23 @@ class EvolutionApiService
 
     /**
      * Configure webhook for an instance to receive messages.
+     * Compatible with Evolution API v2.3.x
      */
     public function setWebhook(string $instanceName, ?string $webhookUrl = null): array
     {
         $url = $webhookUrl ?? url('/api/webhook/evolution');
 
+        // Evolution API v2.3.x format
         $response = $this->request()->post("/webhook/set/{$instanceName}", [
-            'webhook' => [
-                'enabled' => true,
-                'url' => $url,
-                'webhookByEvents' => false,
-                'webhookBase64' => false,
-                'events' => [
-                    'MESSAGES_UPSERT',
-                    'MESSAGES_UPDATE',
-                    'CONNECTION_UPDATE',
-                    'SEND_MESSAGE',
-                ],
+            'enabled' => true,
+            'url' => $url,
+            'webhookByEvents' => false,
+            'webhookBase64' => false,
+            'events' => [
+                'MESSAGES_UPSERT',
+                'MESSAGES_UPDATE', 
+                'CONNECTION_UPDATE',
+                'SEND_MESSAGE',
             ],
         ]);
 
