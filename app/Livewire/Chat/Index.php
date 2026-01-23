@@ -1073,7 +1073,7 @@ class Index extends Component
         $direction = $isFromMe ? 'outgoing' : 'incoming';
         $status = $isFromMe ? 'sent' : 'delivered';
 
-        // Create message
+        // Create message (without media_url - will be loaded on-demand)
         Message::create([
             'channel_id' => $channel->id,
             'contact_id' => $contact->id,
@@ -1082,7 +1082,7 @@ class Index extends Component
             'type' => $type,
             'direction' => $direction,
             'status' => $status,
-            'media_url' => $mediaUrl,
+            'media_url' => null,
             'media_mime_type' => $mediaMimeType,
             'sent_at' => $sentAt,
             'is_read' => true,
