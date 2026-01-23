@@ -2,10 +2,12 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\LidMapping;
 use App\Services\MessageService;
 use App\Services\NotificationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -175,37 +177,154 @@ class WebhookController extends Controller
 
     /**
      * Process message status update webhook.
+     * 
+     * IMPORTANT: This also captures LID ↔ phone number mappings.
+     * WhatsApp sends multiple status updates for the same message with different JID formats.
      */
     private function processMessageStatus(array $payload): JsonResponse
     {
         $data = $payload['data'] ?? [];
-        $messageId = $data['key']['id'] ?? null;
+        $instanceName = $payload['instance'] ?? null;
+        
+        // Get message identifiers - can be in different places
+        $messageId = $data['keyId'] ?? $data['key']['id'] ?? null;
+        $remoteJid = $data['remoteJid'] ?? $data['key']['remoteJid'] ?? null;
         $status = $data['status'] ?? null;
         
-        if (!$messageId || !$status) {
-            return response()->json(['status' => 'skipped', 'reason' => 'missing_data']);
+        if (!$messageId) {
+            return response()->json(['status' => 'skipped', 'reason' => 'missing_message_id']);
+        }
+
+        // ⭐ LID MAPPING LOGIC
+        // When we receive a status update, check if we can create a LID mapping
+        if ($remoteJid && $messageId) {
+            $this->processLidMapping($messageId, $remoteJid, $instanceName);
         }
 
         // Map Evolution API status to our status
-        $mappedStatus = match ($status) {
-            'DELIVERY_ACK', 'PLAYED' => 'delivered',
-            'READ' => 'read',
-            'PENDING' => 'pending',
-            'SERVER_ACK' => 'sent',
-            default => null,
-        };
+        if ($status) {
+            $mappedStatus = match ($status) {
+                'DELIVERY_ACK', 'PLAYED' => 'delivered',
+                'READ' => 'read',
+                'PENDING' => 'pending',
+                'SERVER_ACK' => 'sent',
+                default => null,
+            };
 
-        if ($mappedStatus) {
-            \App\Models\Message::where('message_id', $messageId)
-                ->update(['status' => $mappedStatus]);
-                
-            Log::debug('Message status updated', [
-                'message_id' => $messageId,
-                'status' => $mappedStatus,
-            ]);
+            if ($mappedStatus) {
+                \App\Models\Message::where('message_id', $messageId)
+                    ->update(['status' => $mappedStatus]);
+                    
+                Log::debug('Message status updated', [
+                    'message_id' => $messageId,
+                    'status' => $mappedStatus,
+                ]);
+            }
         }
 
         return response()->json(['status' => 'processed']);
+    }
+
+    /**
+     * Process LID mapping from webhook data.
+     * 
+     * WhatsApp sends multiple webhooks for the same message:
+     * - One with real phone number: 573028537828@s.whatsapp.net
+     * - One with LID: 177562672193615@lid or 573028537828:39@s.whatsapp.net
+     * 
+     * We use a cache to temporarily store messageId → phoneNumber,
+     * then when we see the same messageId with a LID, we create the mapping.
+     */
+    private function processLidMapping(string $messageId, string $remoteJid, ?string $instanceName): void
+    {
+        $cacheKey = "lid_mapping:{$messageId}";
+        $cacheTtl = 300; // 5 minutes
+        
+        // Extract the identifier part
+        $jidPart = explode('@', $remoteJid)[0];
+        
+        // Check if this is a LID format
+        $isLid = str_contains($remoteJid, '@lid') || str_contains($jidPart, ':');
+        
+        // Extract clean number (before any : if present)
+        $cleanNumber = explode(':', $jidPart)[0];
+        
+        // Check if this looks like a real phone number (10-15 digits, starts with 1-9)
+        $isRealPhone = preg_match('/^[1-9]\d{9,14}$/', $cleanNumber);
+        
+        if ($isLid) {
+            // This is a LID - check if we have a cached phone number for this message
+            $cachedPhone = Cache::get($cacheKey);
+            
+            if ($cachedPhone && $cachedPhone !== $cleanNumber) {
+                // We have a real phone number cached, create the mapping
+                // The LID is the part that's NOT a real phone number
+                $lidPart = $isRealPhone ? null : $cleanNumber;
+                
+                // If the JID has a colon, the LID might be after it
+                if (str_contains($jidPart, ':')) {
+                    $parts = explode(':', $jidPart);
+                    // The real phone is usually the first part if it looks like a phone
+                    if (preg_match('/^[1-9]\d{9,14}$/', $parts[0])) {
+                        // First part is phone, this is format like 573028537828:39@s.whatsapp.net
+                        // Not a true LID, but we can still use the phone number
+                        Log::debug('JID with suffix detected', [
+                            'messageId' => $messageId,
+                            'remoteJid' => $remoteJid,
+                            'phone' => $parts[0],
+                        ]);
+                    }
+                }
+                
+                // If we found a true LID (non-phone identifier), create mapping
+                if ($lidPart && !preg_match('/^[1-9]\d{9,14}$/', $lidPart)) {
+                    $channel = $instanceName ? \App\Models\Channel::where('instance_name', $instanceName)->first() : null;
+                    
+                    LidMapping::createMapping(
+                        $lidPart,
+                        $cachedPhone,
+                        $messageId,
+                        $channel?->id
+                    );
+                    
+                    Log::info('LID mapping created from webhook', [
+                        'lid' => $lidPart,
+                        'phone' => $cachedPhone,
+                        'messageId' => $messageId,
+                    ]);
+                }
+            } elseif (!$cachedPhone && $isRealPhone) {
+                // This LID JID contains a real phone number, cache it
+                Cache::put($cacheKey, $cleanNumber, $cacheTtl);
+            }
+        } elseif ($isRealPhone) {
+            // This is a real phone number - cache it for potential LID matching
+            $existingCache = Cache::get($cacheKey);
+            
+            if (!$existingCache) {
+                Cache::put($cacheKey, $cleanNumber, $cacheTtl);
+                Log::debug('Cached phone number for LID mapping', [
+                    'messageId' => $messageId,
+                    'phone' => $cleanNumber,
+                ]);
+            } elseif ($existingCache !== $cleanNumber) {
+                // We have a different number cached - one might be a LID
+                // Check which one is the real phone and which is the LID
+                $existingIsPhone = preg_match('/^[1-9]\d{9,14}$/', $existingCache);
+                
+                if ($existingIsPhone && !$isRealPhone) {
+                    // Existing is phone, current is LID
+                    $channel = $instanceName ? \App\Models\Channel::where('instance_name', $instanceName)->first() : null;
+                    LidMapping::createMapping($cleanNumber, $existingCache, $messageId, $channel?->id);
+                    Log::info('LID mapping created (reverse)', ['lid' => $cleanNumber, 'phone' => $existingCache]);
+                } elseif (!$existingIsPhone && $isRealPhone) {
+                    // Existing is LID, current is phone
+                    $channel = $instanceName ? \App\Models\Channel::where('instance_name', $instanceName)->first() : null;
+                    LidMapping::createMapping($existingCache, $cleanNumber, $messageId, $channel?->id);
+                    Log::info('LID mapping created', ['lid' => $existingCache, 'phone' => $cleanNumber]);
+                }
+            }
+        }
     }
 
     /**

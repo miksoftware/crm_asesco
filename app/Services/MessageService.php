@@ -117,6 +117,8 @@ class MessageService
     /**
      * Process an incoming message from Evolution API webhook.
      * Requirements: 9.1
+     * 
+     * IMPORTANT: Handles LID JIDs by checking the lid_mappings table.
      */
     public function processIncomingMessage(array $webhookData): Message
     {
@@ -128,9 +130,38 @@ class MessageService
         
         // Extract message data
         $remoteJid = $data['key']['remoteJid'] ?? '';
-        $phoneNumber = $this->extractPhoneFromJid($remoteJid);
         $messageId = $data['key']['id'] ?? null;
         $pushName = $data['pushName'] ?? null;
+        
+        // Extract phone number - handle LID format
+        $phoneNumber = $this->extractPhoneFromJid($remoteJid);
+        
+        // Check if this is a LID and try to resolve it
+        $jidPart = explode('@', $remoteJid)[0];
+        $isLid = str_contains($remoteJid, '@lid') || str_contains($jidPart, ':');
+        $cleanJidPart = explode(':', $jidPart)[0];
+        $isRealPhone = preg_match('/^[1-9]\d{9,14}$/', $cleanJidPart);
+        
+        if ($isLid && !$isRealPhone) {
+            // This is a true LID - try to resolve it
+            $resolvedPhone = \App\Models\LidMapping::findPhoneByLid($cleanJidPart);
+            if ($resolvedPhone) {
+                $phoneNumber = $resolvedPhone;
+                Log::info('Resolved LID to phone number in webhook', [
+                    'lid' => $cleanJidPart,
+                    'phone' => $phoneNumber,
+                ]);
+            } else {
+                Log::warning('Could not resolve LID in webhook', [
+                    'lid' => $cleanJidPart,
+                    'remoteJid' => $remoteJid,
+                ]);
+                // Use the LID as phone number for now - it will be updated when mapping is found
+            }
+        } elseif ($isLid && $isRealPhone) {
+            // LID format but contains a real phone number
+            $phoneNumber = $cleanJidPart;
+        }
         
         // Determine message type and content
         $messageType = $this->determineMessageType($data['message'] ?? []);
@@ -146,28 +177,28 @@ class MessageService
             }
         }
         
-        // Find or create contact - use remote_jid as unique identifier
+        // Standard JID format for sending messages
+        $standardJid = $phoneNumber . '@s.whatsapp.net';
+        
+        // Find or create contact - search by phone number to unify LID and regular contacts
         $contact = Contact::where('channel_id', $channel->id)
-            ->where(function ($query) use ($phoneNumber, $remoteJid) {
-                $query->where('phone_number', $phoneNumber)
-                    ->orWhere('remote_jid', $remoteJid);
-            })
+            ->where('phone_number', $phoneNumber)
             ->first();
 
         if (!$contact) {
             $contact = Contact::create([
                 'channel_id' => $channel->id,
                 'phone_number' => $phoneNumber,
-                'remote_jid' => $remoteJid,
+                'remote_jid' => $standardJid, // Always use standard format
                 'push_name' => $pushName,
                 'labels' => [],
                 'metadata' => [],
             ]);
         } else {
-            // Update remote_jid and push_name if needed
+            // Update remote_jid to standard format and push_name if needed
             $updates = [];
-            if (!$contact->remote_jid && $remoteJid) {
-                $updates['remote_jid'] = $remoteJid;
+            if ($contact->remote_jid !== $standardJid) {
+                $updates['remote_jid'] = $standardJid;
             }
             if ($pushName && $contact->push_name !== $pushName) {
                 $updates['push_name'] = $pushName;

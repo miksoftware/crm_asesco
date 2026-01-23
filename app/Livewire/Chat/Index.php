@@ -967,8 +967,9 @@ class Index extends Component
      * Fast message import - does NOT download media to avoid timeout.
      * Media will be downloaded on-demand when viewing the message.
      * 
-     * IMPORTANT: Handles @lid JIDs by checking if they are real phone numbers.
-     * LIDs are WhatsApp internal identifiers that cannot be used to send messages.
+     * IMPORTANT: Handles @lid JIDs by:
+     * 1. Checking the lid_mappings table for known LID → phone mappings
+     * 2. Skipping LIDs that don't have a mapping and aren't real phone numbers
      */
     private function processImportedMessageFast(Channel $channel, array $msgData): bool
     {
@@ -1011,29 +1012,39 @@ class Index extends Component
         // Extract the identifier from JID
         $jidPart = explode('@', $remoteJid)[0];
         
-        // Check if this is a LID (contains : or is too long to be a phone number)
+        // Check if this is a LID (contains @lid or has : in the identifier)
         $isLid = str_contains($remoteJid, '@lid') || str_contains($jidPart, ':');
         
         // For LID JIDs, extract just the numeric part before any ':'
-        if ($isLid) {
-            $jidPart = explode(':', $jidPart)[0];
-        }
+        $cleanJidPart = explode(':', $jidPart)[0];
         
         // Determine if this looks like a real phone number
         // Real phone numbers: 10-15 digits, start with country code (1-9)
-        $isRealPhoneNumber = preg_match('/^[1-9]\d{9,14}$/', $jidPart);
+        $isRealPhoneNumber = preg_match('/^[1-9]\d{9,14}$/', $cleanJidPart);
         
-        // If it's a LID with a non-phone-like identifier, skip it
-        // These are WhatsApp internal IDs that we can't message
+        $phoneNumber = null;
+        
         if ($isLid && !$isRealPhoneNumber) {
-            Log::debug('Skipping LID message with non-phone identifier', [
-                'remoteJid' => $remoteJid,
-                'jidPart' => $jidPart,
+            // This is a true LID (not a phone number) - check our mapping table
+            $phoneNumber = \App\Models\LidMapping::findPhoneByLid($cleanJidPart);
+            
+            if (!$phoneNumber) {
+                // No mapping found - skip this message
+                Log::debug('Skipping LID message - no mapping found', [
+                    'remoteJid' => $remoteJid,
+                    'lid' => $cleanJidPart,
+                ]);
+                return false;
+            }
+            
+            Log::debug('LID resolved to phone number', [
+                'lid' => $cleanJidPart,
+                'phone' => $phoneNumber,
             ]);
-            return false;
+        } else {
+            // Either a real phone number or a LID that contains a phone number
+            $phoneNumber = $cleanJidPart;
         }
-        
-        $phoneNumber = $jidPart;
 
         // Minimal validation - just ensure we have something
         if (empty($phoneNumber) || strlen($phoneNumber) < 8) {
