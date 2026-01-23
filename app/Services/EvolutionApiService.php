@@ -279,6 +279,50 @@ class EvolutionApiService
         return $this->handleResponse($response);
     }
 
+    /**
+     * Check if a phone number is registered on WhatsApp.
+     * Returns the JID if exists, null if not.
+     */
+    public function checkWhatsAppNumber(string $instanceName, string $phoneNumber): array
+    {
+        // Normalize phone number (remove non-numeric characters)
+        $normalizedNumber = preg_replace('/[^0-9]/', '', $phoneNumber);
+        
+        $response = $this->request()->post("/chat/whatsappNumbers/{$instanceName}", [
+            'numbers' => [$normalizedNumber],
+        ]);
+
+        $result = $this->handleResponse($response);
+        
+        if ($result['success'] && !empty($result['data'])) {
+            $numbers = $result['data'];
+            
+            // Check if the number exists in WhatsApp
+            foreach ($numbers as $number) {
+                if (isset($number['exists']) && $number['exists'] === true) {
+                    return [
+                        'success' => true,
+                        'exists' => true,
+                        'jid' => $number['jid'] ?? null,
+                        'number' => $number['number'] ?? $normalizedNumber,
+                    ];
+                }
+            }
+            
+            return [
+                'success' => true,
+                'exists' => false,
+                'number' => $normalizedNumber,
+            ];
+        }
+
+        return [
+            'success' => false,
+            'exists' => false,
+            'error' => $result['error'] ?? 'Error al verificar número',
+        ];
+    }
+
     protected function handleResponse(Response $response): array
     {
         if ($response->successful()) {

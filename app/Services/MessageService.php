@@ -364,17 +364,38 @@ class MessageService
         if (isset($messageData['imageMessage'])) {
             return 'image';
         }
-        if (isset($messageData['documentMessage'])) {
+        if (isset($messageData['documentMessage']) || isset($messageData['documentWithCaptionMessage'])) {
             return 'document';
         }
-        if (isset($messageData['audioMessage'])) {
+        if (isset($messageData['audioMessage']) || isset($messageData['pttMessage'])) {
             return 'audio';
         }
         if (isset($messageData['videoMessage'])) {
             return 'video';
         }
+        if (isset($messageData['contactMessage']) || isset($messageData['contactsArrayMessage'])) {
+            return 'contact';
+        }
+        if (isset($messageData['locationMessage']) || isset($messageData['liveLocationMessage'])) {
+            return 'location';
+        }
+        if (isset($messageData['stickerMessage'])) {
+            return 'sticker';
+        }
+        if (isset($messageData['protocolMessage'])) {
+            $protoType = $messageData['protocolMessage']['type'] ?? null;
+            if ($protoType === 'REVOKE' || $protoType === 0) {
+                return 'deleted';
+            }
+        }
+        if (isset($messageData['viewOnceMessage']) || isset($messageData['viewOnceMessageV2'])) {
+            return 'image';
+        }
+        if (isset($messageData['pollCreationMessage']) || isset($messageData['pollCreationMessageV3'])) {
+            return 'text';
+        }
         
-        return 'text';
+        return 'other';
     }
 
     /**
@@ -385,11 +406,28 @@ class MessageService
         return match ($type) {
             'text' => $messageData['conversation'] 
                 ?? $messageData['extendedTextMessage']['text'] 
+                ?? ($messageData['pollCreationMessage']['name'] ?? null ? '📊 ' . $messageData['pollCreationMessage']['name'] : null)
+                ?? ($messageData['pollCreationMessageV3']['name'] ?? null ? '📊 ' . $messageData['pollCreationMessageV3']['name'] : null)
                 ?? null,
-            'image' => $messageData['imageMessage']['caption'] ?? null,
-            'document' => $messageData['documentMessage']['fileName'] ?? null,
+            'image' => $messageData['imageMessage']['caption'] 
+                ?? ($messageData['viewOnceMessage'] ? '[Vista única]' : null)
+                ?? ($messageData['viewOnceMessageV2'] ? '[Vista única]' : null)
+                ?? null,
+            'document' => $messageData['documentMessage']['fileName'] 
+                ?? $messageData['documentWithCaptionMessage']['message']['documentMessage']['fileName'] 
+                ?? '[Documento]',
             'audio' => '[Audio]',
             'video' => $messageData['videoMessage']['caption'] ?? null,
+            'contact' => $messageData['contactMessage']['displayName'] 
+                ?? $messageData['contactsArrayMessage']['contacts'][0]['displayName'] 
+                ?? '[Contacto]',
+            'location' => $messageData['locationMessage']['name'] 
+                ?? $messageData['locationMessage']['address'] 
+                ?? $messageData['liveLocationMessage']['caption']
+                ?? '[Ubicación]',
+            'sticker' => '[Sticker]',
+            'deleted' => '[Mensaje eliminado]',
+            'other' => '[Mensaje no soportado]',
             default => null,
         };
     }
@@ -401,8 +439,10 @@ class MessageService
     {
         return match ($type) {
             'image' => $messageData['imageMessage']['url'] ?? null,
-            'document' => $messageData['documentMessage']['url'] ?? null,
-            'audio' => $messageData['audioMessage']['url'] ?? null,
+            'document' => $messageData['documentMessage']['url'] 
+                ?? $messageData['documentWithCaptionMessage']['message']['documentMessage']['url'] 
+                ?? null,
+            'audio' => $messageData['audioMessage']['url'] ?? $messageData['pttMessage']['url'] ?? null,
             'video' => $messageData['videoMessage']['url'] ?? null,
             default => null,
         };
@@ -414,10 +454,12 @@ class MessageService
     private function extractMediaMimeType(array $messageData, string $type): ?string
     {
         return match ($type) {
-            'image' => $messageData['imageMessage']['mimetype'] ?? null,
-            'document' => $messageData['documentMessage']['mimetype'] ?? null,
-            'audio' => $messageData['audioMessage']['mimetype'] ?? null,
-            'video' => $messageData['videoMessage']['mimetype'] ?? null,
+            'image' => $messageData['imageMessage']['mimetype'] ?? 'image/jpeg',
+            'document' => $messageData['documentMessage']['mimetype'] 
+                ?? $messageData['documentWithCaptionMessage']['message']['documentMessage']['mimetype'] 
+                ?? 'application/octet-stream',
+            'audio' => $messageData['audioMessage']['mimetype'] ?? $messageData['pttMessage']['mimetype'] ?? 'audio/ogg; codecs=opus',
+            'video' => $messageData['videoMessage']['mimetype'] ?? 'video/mp4',
             default => null,
         };
     }

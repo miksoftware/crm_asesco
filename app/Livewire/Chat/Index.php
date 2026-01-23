@@ -65,6 +65,12 @@ class Index extends Component
     public string $newLabelName = '';
     public string $newLabelColor = '#6b7280';
 
+    // New chat modal
+    public bool $showNewChatModal = false;
+    public string $newChatNumber = '';
+    public string $newChatMessage = '';
+    public bool $isCheckingNumber = false;
+
     // Sync state
     public bool $isSyncing = false;
 
@@ -525,6 +531,131 @@ class Index extends Component
         $this->dispatch('toast', type: 'success', message: 'Etiqueta creada');
     }
 
+    // New Chat functionality
+    public function openNewChatModal(): void
+    {
+        if (!$this->canSend) {
+            $this->dispatch('toast', type: 'error', message: 'No tienes permiso para enviar mensajes');
+            return;
+        }
+
+        if ($this->selectedChannelId === null) {
+            $this->dispatch('toast', type: 'error', message: 'Selecciona un canal primero');
+            return;
+        }
+
+        $this->newChatNumber = '';
+        $this->newChatMessage = '';
+        $this->showNewChatModal = true;
+    }
+
+    public function closeNewChatModal(): void
+    {
+        $this->showNewChatModal = false;
+        $this->newChatNumber = '';
+        $this->newChatMessage = '';
+        $this->isCheckingNumber = false;
+    }
+
+    public function startNewChat(): void
+    {
+        $this->validate([
+            'newChatNumber' => 'required|min:8|max:20',
+            'newChatMessage' => 'required|min:1|max:4096',
+        ], [
+            'newChatNumber.required' => 'El número es requerido',
+            'newChatNumber.min' => 'El número debe tener al menos 8 dígitos',
+            'newChatMessage.required' => 'El mensaje es requerido',
+        ]);
+
+        $channel = Channel::find($this->selectedChannelId);
+        if (!$channel) {
+            $this->dispatch('toast', type: 'error', message: 'Canal no encontrado');
+            return;
+        }
+
+        $this->isCheckingNumber = true;
+        $evolutionApi = app(EvolutionApiService::class);
+
+        try {
+            // Normalize phone number
+            $phoneNumber = preg_replace('/[^0-9]/', '', $this->newChatNumber);
+
+            // Check if number exists on WhatsApp
+            $checkResult = $evolutionApi->checkWhatsAppNumber($channel->instance_name, $phoneNumber);
+
+            if (!$checkResult['success']) {
+                $this->isCheckingNumber = false;
+                $this->dispatch('toast', type: 'error', message: 'Error al verificar el número');
+                return;
+            }
+
+            if (!$checkResult['exists']) {
+                $this->isCheckingNumber = false;
+                $this->dispatch('toast', type: 'error', message: 'El número no está registrado en WhatsApp');
+                return;
+            }
+
+            // Number exists, get the JID
+            $remoteJid = $checkResult['jid'] ?? $phoneNumber . '@s.whatsapp.net';
+
+            // Find or create contact
+            $contact = Contact::firstOrCreate(
+                [
+                    'channel_id' => $this->selectedChannelId,
+                    'phone_number' => $phoneNumber,
+                ],
+                [
+                    'remote_jid' => $remoteJid,
+                ]
+            );
+
+            // Update remote_jid if it was missing
+            if (!$contact->remote_jid && $remoteJid) {
+                $contact->update(['remote_jid' => $remoteJid]);
+            }
+
+            // Send the message
+            $response = $evolutionApi->sendTextMessage(
+                $channel->instance_name,
+                $remoteJid,
+                $this->newChatMessage
+            );
+
+            if ($response['success']) {
+                // Create message record
+                Message::create([
+                    'contact_id' => $contact->id,
+                    'channel_id' => $this->selectedChannelId,
+                    'message_id' => $response['data']['key']['id'] ?? null,
+                    'direction' => 'outgoing',
+                    'type' => 'text',
+                    'content' => $this->newChatMessage,
+                    'status' => 'sent',
+                    'is_read' => true,
+                    'sent_at' => now(),
+                ]);
+
+                $this->closeNewChatModal();
+                
+                // Select the new conversation
+                $this->selectedContactId = $contact->id;
+                unset($this->conversations);
+                unset($this->messages);
+
+                $this->dispatch('toast', type: 'success', message: 'Conversación iniciada');
+            } else {
+                $this->dispatch('toast', type: 'error', message: 'Error al enviar el mensaje');
+            }
+
+        } catch (\Exception $e) {
+            Log::error('Error starting new chat', ['error' => $e->getMessage()]);
+            $this->dispatch('toast', type: 'error', message: 'Error: ' . $e->getMessage());
+        }
+
+        $this->isCheckingNumber = false;
+    }
+
     public function addLabelToContact(int $labelId): void
     {
         if (!$this->canManageLabels) {
@@ -705,9 +836,12 @@ class Index extends Component
         $evolutionApi = app(EvolutionApiService::class);
 
         try {
+            // First, clean up invalid contacts
+            $cleaned = $this->cleanupInvalidContacts($channel->id);
+            
             $imported = 0;
             $page = 1;
-            $maxPages = 10;
+            $maxPages = 20;
 
             while ($page <= $maxPages) {
                 $result = $evolutionApi->fetchAllMessages($channel->instance_name, $page, 100);
@@ -725,7 +859,7 @@ class Index extends Component
                 }
 
                 foreach ($records as $msgData) {
-                    if ($this->processImportedMessage($channel, $msgData)) {
+                    if ($this->processImportedMessage($channel, $msgData, $evolutionApi)) {
                         $imported++;
                     }
                 }
@@ -736,11 +870,19 @@ class Index extends Component
             $this->isSyncing = false;
             unset($this->conversations);
             unset($this->messages);
+            unset($this->hasConversations);
 
+            $message = '';
+            if ($cleaned > 0) {
+                $message .= "Se limpiaron {$cleaned} contactos inválidos. ";
+            }
             if ($imported > 0) {
-                $this->dispatch('toast', type: 'success', message: "Se importaron {$imported} mensajes");
+                $message .= "Se importaron {$imported} mensajes.";
+                $this->dispatch('toast', type: 'success', message: trim($message));
+            } elseif ($cleaned > 0) {
+                $this->dispatch('toast', type: 'success', message: trim($message));
             } else {
-                $this->dispatch('toast', type: 'info', message: 'No hay mensajes nuevos para importar');
+                $this->dispatch('toast', type: 'info', message: 'No hay cambios para sincronizar');
             }
 
         } catch (\Exception $e) {
@@ -751,9 +893,53 @@ class Index extends Component
     }
 
     /**
+     * Clean up invalid contacts (status broadcasts, invalid numbers, etc.)
+     */
+    private function cleanupInvalidContacts(int $channelId): int
+    {
+        $invalidContacts = Contact::where('channel_id', $channelId)
+            ->where(function ($query) {
+                // Numbers too short (less than 8 digits)
+                $query->whereRaw('LENGTH(phone_number) < 8')
+                    // Or contains "status" 
+                    ->orWhere('phone_number', 'like', '%status%')
+                    // Or remote_jid contains broadcast
+                    ->orWhere('remote_jid', 'like', '%@broadcast%')
+                    ->orWhere('remote_jid', 'like', '%status@%')
+                    // Or remote_jid contains newsletter
+                    ->orWhere('remote_jid', 'like', '%@newsletter%')
+                    // Or remote_jid contains group
+                    ->orWhere('remote_jid', 'like', '%@g.us%')
+                    // Or phone number is not numeric
+                    ->orWhereRaw("phone_number REGEXP '[^0-9]'")
+                    // Or push_name is "Você" (WhatsApp status indicator)
+                    ->orWhere('push_name', 'Você')
+                    ->orWhere('push_name', 'Voce')
+                    ->orWhere('name', 'Você')
+                    ->orWhere('name', 'Voce');
+            })
+            ->get();
+
+        $count = $invalidContacts->count();
+
+        foreach ($invalidContacts as $contact) {
+            // Delete messages first (due to foreign key)
+            $contact->messages()->delete();
+            // Delete the contact
+            $contact->delete();
+        }
+
+        if ($count > 0) {
+            Log::info("Cleaned up {$count} invalid contacts from channel {$channelId}");
+        }
+
+        return $count;
+    }
+
+    /**
      * Process a single message from Evolution API import.
      */
-    private function processImportedMessage(Channel $channel, array $msgData): bool
+    private function processImportedMessage(Channel $channel, array $msgData, EvolutionApiService $evolutionApi): bool
     {
         $key = $msgData['key'] ?? [];
         $messageId = $key['id'] ?? null;
@@ -768,6 +954,16 @@ class Index extends Component
             return false;
         }
 
+        // Skip status/broadcast messages (status@broadcast)
+        if (str_contains($remoteJid, '@broadcast') || str_contains($remoteJid, 'status@')) {
+            return false;
+        }
+
+        // Skip newsletter messages
+        if (str_contains($remoteJid, '@newsletter')) {
+            return false;
+        }
+
         // Check if message already exists
         if (Message::where('message_id', $messageId)->exists()) {
             return false;
@@ -776,6 +972,11 @@ class Index extends Component
         // Extract phone number from JID
         $phoneNumber = $this->extractPhoneNumber($remoteJid);
         if (!$phoneNumber) {
+            return false;
+        }
+
+        // Skip if phone number looks invalid (too short or special numbers)
+        if (strlen($phoneNumber) < 8) {
             return false;
         }
 
@@ -798,6 +999,9 @@ class Index extends Component
         // Determine type and content based on message type
         $type = 'text';
         $content = null;
+        $mediaUrl = null;
+        $mediaMimeType = null;
+        $needsMediaDownload = false;
 
         // Handle different message types
         if (isset($messageContent['conversation'])) {
@@ -808,17 +1012,26 @@ class Index extends Component
             $content = $messageContent['extendedTextMessage']['text'] ?? null;
         } elseif (isset($messageContent['imageMessage'])) {
             $type = 'image';
-            $content = $messageContent['imageMessage']['caption'] ?? '[Imagen]';
+            $content = $messageContent['imageMessage']['caption'] ?? null;
+            $mediaMimeType = $messageContent['imageMessage']['mimetype'] ?? 'image/jpeg';
+            $needsMediaDownload = true;
         } elseif (isset($messageContent['videoMessage'])) {
             $type = 'video';
-            $content = $messageContent['videoMessage']['caption'] ?? '[Video]';
+            $content = $messageContent['videoMessage']['caption'] ?? null;
+            $mediaMimeType = $messageContent['videoMessage']['mimetype'] ?? 'video/mp4';
+            $needsMediaDownload = true;
         } elseif (isset($messageContent['audioMessage']) || isset($messageContent['pttMessage'])) {
             $type = 'audio';
             $content = '[Audio]';
+            $audioMsg = $messageContent['audioMessage'] ?? $messageContent['pttMessage'] ?? [];
+            $mediaMimeType = $audioMsg['mimetype'] ?? 'audio/ogg; codecs=opus';
+            $needsMediaDownload = true;
         } elseif (isset($messageContent['documentMessage']) || isset($messageContent['documentWithCaptionMessage'])) {
             $type = 'document';
             $docMsg = $messageContent['documentMessage'] ?? $messageContent['documentWithCaptionMessage']['message']['documentMessage'] ?? [];
-            $content = $docMsg['fileName'] ?? $docMsg['caption'] ?? '[Documento]';
+            $content = $docMsg['fileName'] ?? $docMsg['title'] ?? '[Documento]';
+            $mediaMimeType = $docMsg['mimetype'] ?? 'application/octet-stream';
+            $needsMediaDownload = true;
         } elseif (isset($messageContent['contactMessage']) || isset($messageContent['contactsArrayMessage'])) {
             $type = 'contact';
             $contactMsg = $messageContent['contactMessage'] ?? ($messageContent['contactsArrayMessage']['contacts'][0] ?? []);
@@ -826,40 +1039,57 @@ class Index extends Component
         } elseif (isset($messageContent['locationMessage']) || isset($messageContent['liveLocationMessage'])) {
             $type = 'location';
             $locMsg = $messageContent['locationMessage'] ?? $messageContent['liveLocationMessage'] ?? [];
-            $content = $locMsg['name'] ?? $locMsg['address'] ?? '[Ubicación compartida]';
+            $content = $locMsg['name'] ?? $locMsg['address'] ?? '[Ubicación]';
         } elseif (isset($messageContent['stickerMessage'])) {
             $type = 'sticker';
             $content = '[Sticker]';
         } elseif (isset($messageContent['reactionMessage'])) {
-            // Skip reactions - they're not standalone messages
-            return false;
+            return false; // Skip reactions
         } elseif (isset($messageContent['protocolMessage'])) {
-            // Check if it's a deleted message
             $protoType = $messageContent['protocolMessage']['type'] ?? null;
             if ($protoType === 'REVOKE' || $protoType === 0) {
                 $type = 'deleted';
                 $content = '[Mensaje eliminado]';
             } else {
-                // Skip other protocol messages
                 return false;
             }
         } elseif (isset($messageContent['viewOnceMessage']) || isset($messageContent['viewOnceMessageV2'])) {
             $type = 'image';
-            $content = '[Mensaje de vista única]';
+            $content = '[Vista única]';
         } elseif (isset($messageContent['pollCreationMessage']) || isset($messageContent['pollCreationMessageV3'])) {
             $type = 'text';
             $pollMsg = $messageContent['pollCreationMessage'] ?? $messageContent['pollCreationMessageV3'] ?? [];
-            $content = '📊 Encuesta: ' . ($pollMsg['name'] ?? '[Encuesta]');
+            $content = '📊 ' . ($pollMsg['name'] ?? 'Encuesta');
         } else {
-            // Fallback - try to get any text content
-            $type = 'text';
+            // For unknown types, use 'other' type
+            $type = 'other';
             $content = '[Mensaje no soportado]';
-            
-            // Log unknown message type for debugging
-            Log::debug('Unknown message type', ['messageType' => $messageType, 'keys' => array_keys($messageContent)]);
         }
 
-        // Parse timestamp - convert to local timezone
+        // Download media if needed
+        if ($needsMediaDownload && $messageId && $remoteJid) {
+            try {
+                $mediaResult = $evolutionApi->getMediaBase64($channel->instance_name, $messageId, $remoteJid);
+                
+                if ($mediaResult['success'] && !empty($mediaResult['data']['base64'])) {
+                    $base64Data = $mediaResult['data']['base64'];
+                    
+                    // Determine file extension
+                    $extension = $this->getExtensionFromMimeType($mediaMimeType);
+                    $filename = $type . '_' . uniqid() . '.' . $extension;
+                    $path = 'chat-media/' . date('Y/m') . '/' . $filename;
+                    
+                    // Save to storage
+                    Storage::disk('public')->put($path, base64_decode($base64Data));
+                    $mediaUrl = Storage::disk('public')->url($path);
+                }
+            } catch (\Exception $e) {
+                Log::warning('Failed to download media', ['messageId' => $messageId, 'error' => $e->getMessage()]);
+                // Continue without media - message will still be saved
+            }
+        }
+
+        // Parse timestamp
         $timestamp = $msgData['messageTimestamp'] ?? null;
         $sentAt = $timestamp 
             ? \Carbon\Carbon::createFromTimestamp($timestamp, 'UTC')->setTimezone(config('app.timezone'))
@@ -875,15 +1105,43 @@ class Index extends Component
             'channel_id' => $channel->id,
             'contact_id' => $contact->id,
             'message_id' => $messageId,
-            'content' => $content ?: '[Mensaje]',
+            'content' => $content ?: null,
             'type' => $type,
             'direction' => $direction,
             'status' => $status,
+            'media_url' => $mediaUrl,
+            'media_mime_type' => $mediaMimeType,
             'sent_at' => $sentAt,
             'is_read' => true,
         ]);
 
         return true;
+    }
+
+    /**
+     * Get file extension from MIME type.
+     */
+    private function getExtensionFromMimeType(string $mimeType): string
+    {
+        $map = [
+            'image/jpeg' => 'jpg',
+            'image/png' => 'png',
+            'image/gif' => 'gif',
+            'image/webp' => 'webp',
+            'video/mp4' => 'mp4',
+            'video/3gpp' => '3gp',
+            'audio/ogg' => 'ogg',
+            'audio/ogg; codecs=opus' => 'ogg',
+            'audio/mpeg' => 'mp3',
+            'audio/mp4' => 'm4a',
+            'application/pdf' => 'pdf',
+            'application/msword' => 'doc',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document' => 'docx',
+            'application/vnd.ms-excel' => 'xls',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' => 'xlsx',
+        ];
+
+        return $map[$mimeType] ?? 'bin';
     }
 
     /**

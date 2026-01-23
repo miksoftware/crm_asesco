@@ -144,16 +144,41 @@ Ejemplos: `dashboard.ver`, `usuarios.crear`, `roles.editar`, `canales.eliminar`,
 
 ## Gestión de Módulos y Permisos
 
+### IMPORTANTE: NO usar seeders para nuevos módulos en producción
+
+El comando `php artisan permissions:sync` es la única forma correcta de agregar módulos y permisos:
+- Es seguro ejecutar en producción (no elimina datos)
+- Agrega solo lo nuevo, no duplica
+- Asigna automáticamente permisos nuevos al rol admin
+
 ### Comando de sincronización
 ```bash
 php artisan permissions:sync
 ```
-Este comando sincroniza módulos y permisos sin eliminar datos existentes. Asigna automáticamente nuevos permisos al rol admin.
 
 ### Al crear un nuevo módulo:
-1. Agregar el módulo en `app/Console/Commands/SyncModulesAndPermissions.php`
-2. Ejecutar `php artisan permissions:sync`
-3. Los permisos aparecerán automáticamente en la UI de roles
+1. Editar `app/Console/Commands/SyncModulesAndPermissions.php`
+2. Agregar al array `$standardModules` (CRUD) o `$customModules` (permisos especiales)
+3. Ejecutar `php artisan permissions:sync`
+4. Los permisos aparecerán automáticamente en la UI de roles
+
+### Ejemplo - Módulo estándar (CRUD):
+```php
+// En $standardModules agregar:
+['name' => 'clientes', 'display_name' => 'Clientes', 'icon' => 'users', 'order' => 7],
+```
+
+### Ejemplo - Módulo con permisos personalizados:
+```php
+// En $customModules agregar:
+'reportes' => [
+    'module' => ['name' => 'reportes', 'display_name' => 'Reportes', 'icon' => 'chart-bar', 'order' => 8],
+    'permissions' => [
+        ['action' => 'ver', 'display_name' => 'Ver Reportes'],
+        ['action' => 'exportar', 'display_name' => 'Exportar Reportes'],
+    ],
+],
+```
 
 ### Tipos de módulos:
 - **Estándar**: Permisos CRUD (ver, crear, editar, eliminar)

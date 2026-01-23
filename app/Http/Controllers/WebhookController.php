@@ -101,6 +101,33 @@ class WebhookController extends Controller
             return response()->json(['status' => 'skipped', 'reason' => 'group_message']);
         }
 
+        // Skip status/broadcast messages
+        if (str_contains($remoteJid, '@broadcast') || str_contains($remoteJid, 'status@')) {
+            Log::debug('Skipping status/broadcast message webhook');
+            return response()->json(['status' => 'skipped', 'reason' => 'status_broadcast']);
+        }
+
+        // Skip newsletter messages
+        if (str_contains($remoteJid, '@newsletter')) {
+            Log::debug('Skipping newsletter message webhook');
+            return response()->json(['status' => 'skipped', 'reason' => 'newsletter']);
+        }
+
+        // Skip reactions
+        if (isset($data['message']['reactionMessage'])) {
+            Log::debug('Skipping reaction message webhook');
+            return response()->json(['status' => 'skipped', 'reason' => 'reaction']);
+        }
+
+        // Skip protocol messages (except revoke/delete)
+        if (isset($data['message']['protocolMessage'])) {
+            $protoType = $data['message']['protocolMessage']['type'] ?? null;
+            if ($protoType !== 'REVOKE' && $protoType !== 0) {
+                Log::debug('Skipping protocol message webhook');
+                return response()->json(['status' => 'skipped', 'reason' => 'protocol_message']);
+            }
+        }
+
         try {
             // Process the incoming message
             $message = $this->messageService->processIncomingMessage($payload);
