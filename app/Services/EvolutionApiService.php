@@ -184,17 +184,19 @@ class EvolutionApiService
     {
         $url = $webhookUrl ?? url('/api/webhook/evolution');
 
-        // Evolution API v2.3.x format
+        // Evolution API v2.3.7 format - requires "webhook" wrapper
         $response = $this->request()->post("/webhook/set/{$instanceName}", [
-            'enabled' => true,
-            'url' => $url,
-            'webhookByEvents' => false,
-            'webhookBase64' => false,
-            'events' => [
-                'MESSAGES_UPSERT',
-                'MESSAGES_UPDATE', 
-                'CONNECTION_UPDATE',
-                'SEND_MESSAGE',
+            'webhook' => [
+                'enabled' => true,
+                'url' => $url,
+                'webhookByEvents' => false,
+                'webhookBase64' => false,
+                'events' => [
+                    'MESSAGES_UPSERT',
+                    'MESSAGES_UPDATE', 
+                    'CONNECTION_UPDATE',
+                    'SEND_MESSAGE',
+                ],
             ],
         ]);
 
