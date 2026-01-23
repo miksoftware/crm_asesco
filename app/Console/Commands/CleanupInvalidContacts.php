@@ -42,20 +42,23 @@ class CleanupInvalidContacts extends Command
     {
         $invalidContacts = Contact::where('channel_id', $channelId)
             ->where(function ($query) {
-                $query->whereRaw('LENGTH(phone_number) < 10')
-                    ->orWhere('phone_number', 'like', '%status%')
-                    ->orWhere('remote_jid', 'like', '%@broadcast%')
+                // Only remove truly invalid contacts
+                $query
+                    // Status broadcasts
+                    ->where('remote_jid', 'like', '%@broadcast%')
                     ->orWhere('remote_jid', 'like', '%status@%')
+                    // Newsletter
                     ->orWhere('remote_jid', 'like', '%@newsletter%')
+                    // Groups
                     ->orWhere('remote_jid', 'like', '%@g.us%')
-                    ->orWhere('remote_jid', 'like', '%@lid%')
-                    ->orWhereRaw("phone_number REGEXP '[^0-9]'")
-                    ->orWhereRaw("LOWER(push_name) = 'você'")
-                    ->orWhereRaw("LOWER(push_name) = 'voce'")
-                    ->orWhereRaw("LOWER(name) = 'você'")
-                    ->orWhereRaw("LOWER(name) = 'voce'")
-                    ->orWhereRaw("push_name REGEXP '^[^a-zA-Z0-9]+$'")
-                    ->orWhere('phone_number', 'like', '0%');
+                    // "Você" status contacts (exact match, case insensitive)
+                    ->orWhereRaw("LOWER(TRIM(push_name)) = 'você'")
+                    ->orWhereRaw("LOWER(TRIM(push_name)) = 'voce'")
+                    ->orWhereRaw("LOWER(TRIM(name)) = 'você'")
+                    ->orWhereRaw("LOWER(TRIM(name)) = 'voce'")
+                    // Invalid phone numbers (too long - WhatsApp internal IDs, not real phones)
+                    // Real phone numbers have max 13 digits (country code + number)
+                    ->orWhereRaw("LENGTH(phone_number) > 13");
             })
             ->get();
 

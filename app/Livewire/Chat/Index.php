@@ -860,7 +860,7 @@ class Index extends Component
             
             $imported = 0;
             $page = 1;
-            $maxPages = 10; // Reduced from 20 to avoid timeout
+            $maxPages = 50; // Increased to get more messages
 
             while ($page <= $maxPages) {
                 $result = $evolutionApi->fetchAllMessages($channel->instance_name, $page, 50); // Reduced batch size
@@ -918,30 +918,23 @@ class Index extends Component
     {
         $invalidContacts = Contact::where('channel_id', $channelId)
             ->where(function ($query) {
-                // Numbers too short (less than 10 digits) - international numbers need at least 10
-                $query->whereRaw('LENGTH(phone_number) < 10')
-                    // Or contains "status" 
-                    ->orWhere('phone_number', 'like', '%status%')
-                    // Or remote_jid contains broadcast
-                    ->orWhere('remote_jid', 'like', '%@broadcast%')
+                // Only remove truly invalid contacts
+                $query
+                    // Status broadcasts
+                    ->where('remote_jid', 'like', '%@broadcast%')
                     ->orWhere('remote_jid', 'like', '%status@%')
-                    // Or remote_jid contains newsletter
+                    // Newsletter
                     ->orWhere('remote_jid', 'like', '%@newsletter%')
-                    // Or remote_jid contains group
+                    // Groups
                     ->orWhere('remote_jid', 'like', '%@g.us%')
-                    // Or remote_jid contains lid (linked device IDs)
-                    ->orWhere('remote_jid', 'like', '%@lid%')
-                    // Or phone number is not numeric
-                    ->orWhereRaw("phone_number REGEXP '[^0-9]'")
-                    // Or push_name is "Você" (WhatsApp status indicator) - case insensitive
-                    ->orWhereRaw("LOWER(push_name) = 'você'")
-                    ->orWhereRaw("LOWER(push_name) = 'voce'")
-                    ->orWhereRaw("LOWER(name) = 'você'")
-                    ->orWhereRaw("LOWER(name) = 'voce'")
-                    // Or push_name contains only special characters or is empty-ish
-                    ->orWhereRaw("push_name REGEXP '^[^a-zA-Z0-9]+$'")
-                    // Or phone_number starts with 0 (invalid international format)
-                    ->orWhere('phone_number', 'like', '0%');
+                    // "Você" status contacts (exact match, case insensitive)
+                    ->orWhereRaw("LOWER(TRIM(push_name)) = 'você'")
+                    ->orWhereRaw("LOWER(TRIM(push_name)) = 'voce'")
+                    ->orWhereRaw("LOWER(TRIM(name)) = 'você'")
+                    ->orWhereRaw("LOWER(TRIM(name)) = 'voce'")
+                    // Invalid phone numbers (too long - WhatsApp internal IDs, not real phones)
+                    // Real phone numbers have max 13 digits (country code + number)
+                    ->orWhereRaw("LENGTH(phone_number) > 13");
             })
             ->get();
 
@@ -1000,60 +993,69 @@ class Index extends Component
             return false;
         }
 
-        // Skip linked device IDs (format: number:device@lid)
-        if (str_contains($remoteJid, '@lid')) {
-            return false;
-        }
-
         // Check if message already exists
         if (Message::where('message_id', $messageId)->exists()) {
             return false;
         }
 
-        // Extract phone number from JID
+        // Extract phone number from JID (works for both @s.whatsapp.net and @lid formats)
         $phoneNumber = $this->extractPhoneNumber($remoteJid);
         if (!$phoneNumber) {
             return false;
         }
 
-        // Validate phone number - must be at least 10 digits (international format)
-        if (strlen($phoneNumber) < 10) {
+        // Basic validation - at least 10 digits and max 13 (real phone numbers)
+        // Must start with valid country codes (1-3 digits starting with 1-9)
+        if (strlen($phoneNumber) < 10 || strlen($phoneNumber) > 13) {
             return false;
         }
-
-        // Skip if phone number starts with 0 (invalid international format)
-        if (str_starts_with($phoneNumber, '0')) {
+        
+        // Skip numbers that don't look like real phone numbers
+        // WhatsApp internal IDs often start with unusual patterns
+        // Valid country codes: 1 (US/CA), 52 (MX), 54 (AR), 55 (BR), 56 (CL), 57 (CO), 58 (VE), etc.
+        $firstDigits = substr($phoneNumber, 0, 2);
+        $validPrefixes = ['1', '52', '53', '54', '55', '56', '57', '58', '59', '60', '61', '62', '63', '64', '65', '66', '81', '82', '84', '86', '90', '91', '92', '93', '94', '95', '98'];
+        $isValidPrefix = false;
+        foreach ($validPrefixes as $prefix) {
+            if (str_starts_with($phoneNumber, $prefix)) {
+                $isValidPrefix = true;
+                break;
+            }
+        }
+        if (!$isValidPrefix) {
             return false;
         }
 
         // Skip "Você" contacts (WhatsApp status)
         $pushName = $msgData['pushName'] ?? null;
-        if ($pushName && in_array(strtolower($pushName), ['você', 'voce', 'você ', 'voce '])) {
+        $pushNameLower = $pushName ? strtolower(trim($pushName)) : '';
+        if (in_array($pushNameLower, ['você', 'voce'])) {
             return false;
         }
 
-        // Create or update contact - use remote_jid as primary key to avoid duplicates
+        // IMPORTANT: Always search by phone number to unify chats
+        // This ensures messages from @lid JIDs go to the same contact as @s.whatsapp.net
         $contact = Contact::where('channel_id', $channel->id)
-            ->where(function ($q) use ($phoneNumber, $remoteJid) {
-                $q->where('phone_number', $phoneNumber)
-                  ->orWhere('remote_jid', $remoteJid);
-            })
+            ->where('phone_number', $phoneNumber)
             ->first();
 
         if (!$contact) {
+            // Create new contact - always use the standard JID format for sending
+            $standardJid = $phoneNumber . '@s.whatsapp.net';
             $contact = Contact::create([
                 'channel_id' => $channel->id,
                 'phone_number' => $phoneNumber,
-                'remote_jid' => $remoteJid,
+                'remote_jid' => $standardJid, // Always use standard format
                 'push_name' => $pushName,
             ]);
         } else {
-            // Update remote_jid if different (prefer the s.whatsapp.net format)
-            if ($contact->remote_jid !== $remoteJid && str_contains($remoteJid, '@s.whatsapp.net')) {
-                $contact->update([
-                    'remote_jid' => $remoteJid,
-                    'push_name' => $pushName ?? $contact->push_name,
-                ]);
+            // Update push_name if we have a new one and contact doesn't have one
+            if ($pushName && !$contact->push_name) {
+                $contact->update(['push_name' => $pushName]);
+            }
+            // Ensure remote_jid is in standard format (not @lid)
+            if (!$contact->remote_jid || str_contains($contact->remote_jid, '@lid')) {
+                $contact->update(['remote_jid' => $phoneNumber . '@s.whatsapp.net']);
             }
         }
 
