@@ -54,7 +54,9 @@ class CleanupInvalidContacts extends Command
                     ->orWhereRaw("LOWER(TRIM(push_name)) = 'você'")
                     ->orWhereRaw("LOWER(TRIM(push_name)) = 'voce'")
                     ->orWhereRaw("LOWER(TRIM(name)) = 'você'")
-                    ->orWhereRaw("LOWER(TRIM(name)) = 'voce'");
+                    ->orWhereRaw("LOWER(TRIM(name)) = 'voce'")
+                    // LID contacts that don't have real phone numbers
+                    ->orWhereRaw("phone_number NOT REGEXP '^[1-9][0-9]{9,14}$'");
             })
             ->get();
 

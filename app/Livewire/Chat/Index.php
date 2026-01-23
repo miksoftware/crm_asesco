@@ -912,8 +912,7 @@ class Index extends Component
     }
 
     /**
-     * Clean up invalid contacts (status broadcasts, groups, newsletters only)
-     * SIMPLIFIED: Only remove truly invalid contacts, not based on phone number length
+     * Clean up invalid contacts (status broadcasts, groups, newsletters, and LID-only contacts)
      */
     private function cleanupInvalidContacts(int $channelId): int
     {
@@ -931,7 +930,10 @@ class Index extends Component
                     ->orWhereRaw("LOWER(TRIM(push_name)) = 'você'")
                     ->orWhereRaw("LOWER(TRIM(push_name)) = 'voce'")
                     ->orWhereRaw("LOWER(TRIM(name)) = 'você'")
-                    ->orWhereRaw("LOWER(TRIM(name)) = 'voce'");
+                    ->orWhereRaw("LOWER(TRIM(name)) = 'voce'")
+                    // LID contacts that don't have real phone numbers (not starting with valid country code)
+                    // Real phone numbers start with 1-9 and have 10-15 digits
+                    ->orWhereRaw("phone_number NOT REGEXP '^[1-9][0-9]{9,14}$'");
             })
             ->get();
 
@@ -965,8 +967,8 @@ class Index extends Component
      * Fast message import - does NOT download media to avoid timeout.
      * Media will be downloaded on-demand when viewing the message.
      * 
-     * SIMPLIFIED: Only skip groups, broadcasts, newsletters. Accept all other messages.
-     * For @lid JIDs, extract the phone number and unify with existing contacts.
+     * IMPORTANT: Handles @lid JIDs by checking if they are real phone numbers.
+     * LIDs are WhatsApp internal identifiers that cannot be used to send messages.
      */
     private function processImportedMessageFast(Channel $channel, array $msgData): bool
     {
@@ -1006,19 +1008,32 @@ class Index extends Component
             return false;
         }
 
-        // Extract phone number from JID
-        // For @s.whatsapp.net: 573001234567@s.whatsapp.net -> 573001234567
-        // For @lid: 573001234567:45@lid -> 573001234567
-        $phoneNumber = $this->extractPhoneNumber($remoteJid);
+        // Extract the identifier from JID
+        $jidPart = explode('@', $remoteJid)[0];
         
-        // If we couldn't extract a phone number, use the full JID part before @
-        if (!$phoneNumber) {
-            $phoneNumber = explode('@', $remoteJid)[0];
-            // Remove any :XX suffix from lid format
-            if (str_contains($phoneNumber, ':')) {
-                $phoneNumber = explode(':', $phoneNumber)[0];
-            }
+        // Check if this is a LID (contains : or is too long to be a phone number)
+        $isLid = str_contains($remoteJid, '@lid') || str_contains($jidPart, ':');
+        
+        // For LID JIDs, extract just the numeric part before any ':'
+        if ($isLid) {
+            $jidPart = explode(':', $jidPart)[0];
         }
+        
+        // Determine if this looks like a real phone number
+        // Real phone numbers: 10-15 digits, start with country code (1-9)
+        $isRealPhoneNumber = preg_match('/^[1-9]\d{9,14}$/', $jidPart);
+        
+        // If it's a LID with a non-phone-like identifier, skip it
+        // These are WhatsApp internal IDs that we can't message
+        if ($isLid && !$isRealPhoneNumber) {
+            Log::debug('Skipping LID message with non-phone identifier', [
+                'remoteJid' => $remoteJid,
+                'jidPart' => $jidPart,
+            ]);
+            return false;
+        }
+        
+        $phoneNumber = $jidPart;
 
         // Minimal validation - just ensure we have something
         if (empty($phoneNumber) || strlen($phoneNumber) < 8) {
