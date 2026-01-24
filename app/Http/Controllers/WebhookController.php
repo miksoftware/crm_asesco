@@ -320,12 +320,13 @@ class WebhookController extends Controller
             };
 
             if ($mappedStatus) {
-                \App\Models\Message::where('message_id', $messageId)
+                $updated = \App\Models\Message::where('message_id', $messageId)
                     ->update(['status' => $mappedStatus]);
                     
-                Log::debug('Message status updated', [
+                Log::info('Message status update attempt', [
                     'message_id' => $messageId,
                     'status' => $mappedStatus,
+                    'rows_updated' => $updated,
                 ]);
             }
         }

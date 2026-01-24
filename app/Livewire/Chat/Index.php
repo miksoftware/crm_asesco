@@ -40,6 +40,9 @@ class Index extends Component
     #[Url(history: true)]
     public ?int $labelFilter = null;
 
+    #[Url(history: true)]
+    public ?string $dateFilter = null;
+
     public string $messageText = '';
 
     public int $messagesLimit = 50;
@@ -141,9 +144,33 @@ class Index extends Component
             });
         }
 
+        // Apply date filter - filter by last message date
+        if (!empty($this->dateFilter)) {
+            $filterDate = \Carbon\Carbon::parse($this->dateFilter)->startOfDay();
+            $filterDateEnd = \Carbon\Carbon::parse($this->dateFilter)->endOfDay();
+            
+            $query->whereHas('messages', function ($q) use ($filterDate, $filterDateEnd) {
+                $q->whereBetween('sent_at', [$filterDate, $filterDateEnd]);
+            });
+        }
+
         $contacts = $query->with(['messages' => function ($q) {
             $q->orderByDesc('sent_at')->orderByDesc('created_at')->limit(1);
         }])->get();
+
+        // If date filter is active, only show contacts whose LAST message is on that date
+        if (!empty($this->dateFilter)) {
+            $filterDate = \Carbon\Carbon::parse($this->dateFilter)->startOfDay();
+            $filterDateEnd = \Carbon\Carbon::parse($this->dateFilter)->endOfDay();
+            
+            $contacts = $contacts->filter(function ($contact) use ($filterDate, $filterDateEnd) {
+                $lastMessage = $contact->messages->first();
+                if (!$lastMessage || !$lastMessage->sent_at) {
+                    return false;
+                }
+                return $lastMessage->sent_at->between($filterDate, $filterDateEnd);
+            });
+        }
 
         return $contacts->sortByDesc(function ($contact) {
             $lastMessage = $contact->messages->first();
@@ -806,6 +833,19 @@ class Index extends Component
         $this->resetMessages();
     }
 
+    public function clearDateFilter(): void
+    {
+        $this->dateFilter = null;
+        $this->selectedContactId = null;
+        $this->resetMessages();
+    }
+
+    public function updatingDateFilter(): void
+    {
+        $this->selectedContactId = null;
+        $this->resetMessages();
+    }
+
     private function resetMessages(): void
     {
         $this->messagesLimit = 50;
@@ -1275,7 +1315,7 @@ class Index extends Component
             return; // Already has media or not found
         }
 
-        if (!in_array($message->type, ['image', 'audio', 'video', 'document'])) {
+        if (!in_array($message->type, ['image', 'audio', 'video', 'document', 'sticker'])) {
             return; // Not a media message
         }
 

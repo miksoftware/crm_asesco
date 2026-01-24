@@ -55,7 +55,24 @@
                             @endforeach
                         </select>
                         @if($labelFilter)
-                            <button wire:click="clearLabelFilter" class="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg">
+                            <button wire:click="clearLabelFilter" class="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg" title="Limpiar filtro">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                                </svg>
+                            </button>
+                        @endif
+                    </div>
+
+                    <!-- Date Filter -->
+                    <div class="flex items-center gap-2">
+                        <div class="relative flex-1">
+                            <input type="date" 
+                                   wire:model.live="dateFilter"
+                                   class="w-full px-2 py-1.5 border border-gray-300 rounded-lg text-xs focus:ring-2 focus:ring-green-500"
+                                   title="Filtrar por fecha de último mensaje">
+                        </div>
+                        @if($dateFilter)
+                            <button wire:click="clearDateFilter" class="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg" title="Limpiar filtro de fecha">
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
                                 </svg>
@@ -303,10 +320,20 @@
                                             <span class="text-sm text-gray-700">{{ $message->content ?: 'Ubicación compartida' }}</span>
                                         </div>
                                     @elseif($message->type === 'sticker')
-                                        <div class="flex items-center gap-2 text-gray-500 py-1">
-                                            <span class="text-2xl">🎭</span>
-                                            <span class="text-sm italic">Sticker</span>
-                                        </div>
+                                        @if($message->media_url)
+                                            <a href="{{ $message->media_url }}" target="_blank" class="block">
+                                                <img src="{{ $message->media_url }}" alt="Sticker" class="max-w-[150px] max-h-[150px] rounded-lg cursor-pointer" loading="lazy">
+                                            </a>
+                                        @else
+                                            <button wire:click="loadMessageMedia({{ $message->id }})" 
+                                                    wire:loading.attr="disabled"
+                                                    wire:target="loadMessageMedia({{ $message->id }})"
+                                                    class="flex items-center gap-2 text-gray-500 py-2 px-3 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors">
+                                                <span wire:loading.remove wire:target="loadMessageMedia({{ $message->id }})" class="text-2xl">🎭</span>
+                                                <svg wire:loading wire:target="loadMessageMedia({{ $message->id }})" class="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
+                                                <span class="text-sm italic">Cargar sticker</span>
+                                            </button>
+                                        @endif
                                     @elseif($message->type === 'deleted')
                                         <div class="flex items-center gap-2 text-gray-400 py-1 italic">
                                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/></svg>
