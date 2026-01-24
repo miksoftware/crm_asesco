@@ -182,7 +182,15 @@ class FixLidContacts extends Command
                     }
                     $stats['lids_resolved']++;
                 } else {
-                    $this->warn("      ⚠ No se pudo resolver LID: {$lid}");
+                    // No mapping found - delete the LID contact
+                    $this->warn("      ⚠ No se pudo resolver LID: {$lid} - ELIMINANDO");
+                    
+                    if (!$dryRun) {
+                        $contact->messages()->delete();
+                        $contact->labelRelations()->detach();
+                        $contact->delete();
+                    }
+                    $stats['invalid_deleted']++;
                 }
             }
         }
