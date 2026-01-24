@@ -37,6 +37,14 @@ class SyncModulesAndPermissions extends Command
                     ['action' => 'etiquetas', 'display_name' => 'Gestionar Etiquetas'],
                 ],
             ],
+            'campanas' => [
+                'module' => ['name' => 'campanas', 'display_name' => 'Mensajería Masiva', 'icon' => 'megaphone', 'order' => 9],
+                'permissions' => [
+                    ['action' => 'ver', 'display_name' => 'Ver Campañas'],
+                    ['action' => 'crear', 'display_name' => 'Crear Campañas'],
+                    ['action' => 'eliminar', 'display_name' => 'Eliminar Campañas'],
+                ],
+            ],
         ];
 
         $actions = Module::getActions();

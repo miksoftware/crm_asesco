@@ -14,6 +14,9 @@ use App\Livewire\Channels\Create as ChannelsCreate;
 use App\Livewire\Channels\Edit as ChannelsEdit;
 use App\Livewire\Chat\Index as ChatIndex;
 use App\Livewire\Help\TechnicalManual;
+use App\Livewire\Campaigns\Index as CampaignsIndex;
+use App\Livewire\Campaigns\Create as CampaignsCreate;
+use App\Livewire\Campaigns\Results as CampaignsResults;
 
 // Guest routes
 Route::middleware('guest')->group(function () {
@@ -32,6 +35,11 @@ Route::middleware('auth')->group(function () {
 
     // Chat (WhatsApp)
     Route::get('/chat', ChatIndex::class)->name('chat.index')->middleware('permission:chats.ver');
+
+    // Campaigns (Bulk Messaging)
+    Route::get('/campanas', CampaignsIndex::class)->name('campaigns.index')->middleware('permission:campanas.ver');
+    Route::get('/campanas/crear', CampaignsCreate::class)->name('campaigns.create')->middleware('permission:campanas.crear');
+    Route::get('/campanas/{campaign}/resultados', CampaignsResults::class)->name('campaigns.results')->middleware('permission:campanas.ver');
 
     // Settings - Users
     Route::get('/configuracion/usuarios', UsersIndex::class)->name('settings.users.index')->middleware('permission:usuarios.ver');
