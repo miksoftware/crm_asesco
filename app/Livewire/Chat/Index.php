@@ -968,14 +968,16 @@ class Index extends Component
      * Media will be downloaded on-demand when viewing the message.
      * 
      * IMPORTANT: Handles @lid JIDs by:
-     * 1. Checking the lid_mappings table for known LID → phone mappings
-     * 2. Skipping LIDs that don't have a mapping and aren't real phone numbers
+     * 1. First checking remoteJidAlt field (contains real phone when remoteJid is LID)
+     * 2. Checking the lid_mappings table for known LID → phone mappings
+     * 3. Skipping LIDs that don't have a mapping and aren't real phone numbers
      */
     private function processImportedMessageFast(Channel $channel, array $msgData): bool
     {
         $key = $msgData['key'] ?? [];
         $messageId = $key['id'] ?? null;
         $remoteJid = $key['remoteJid'] ?? null;
+        $remoteJidAlt = $key['remoteJidAlt'] ?? null; // ⭐ Evolution API sends real phone here when remoteJid is LID
 
         if (!$messageId || !$remoteJid) {
             return false;
@@ -1024,26 +1026,57 @@ class Index extends Component
         
         $phoneNumber = null;
         
-        if ($isLid && !$isRealPhoneNumber) {
-            // This is a true LID (not a phone number) - check our mapping table
+        // ⭐ PRIORITY 1: Check remoteJidAlt first (Evolution API sends real phone here)
+        if ($remoteJidAlt) {
+            $altJidPart = explode('@', $remoteJidAlt)[0];
+            $cleanAltPart = explode(':', $altJidPart)[0];
+            $isAltRealPhone = preg_match('/^[1-9]\d{9,14}$/', $cleanAltPart);
+            
+            if ($isAltRealPhone) {
+                $phoneNumber = $cleanAltPart;
+                
+                // ⭐ AUTO-CREATE LID MAPPING if remoteJid is a LID
+                if ($isLid && !$isRealPhoneNumber) {
+                    \App\Models\LidMapping::createMapping($cleanJidPart, $phoneNumber, $messageId, $channel->id);
+                    Log::info('LID mapping created from sync remoteJidAlt', [
+                        'lid' => $cleanJidPart,
+                        'phone' => $phoneNumber,
+                        'messageId' => $messageId,
+                    ]);
+                }
+            }
+        }
+        
+        // ⭐ PRIORITY 2: If no phone from remoteJidAlt, check if remoteJid itself is a real phone
+        if (!$phoneNumber && $isRealPhoneNumber) {
+            $phoneNumber = $cleanJidPart;
+        }
+        
+        // ⭐ PRIORITY 3: Check LID mapping table
+        if (!$phoneNumber && $isLid && !$isRealPhoneNumber) {
             $phoneNumber = \App\Models\LidMapping::findPhoneByLid($cleanJidPart);
             
-            if (!$phoneNumber) {
-                // No mapping found - skip this message
+            if ($phoneNumber) {
+                Log::debug('LID resolved from mapping table', [
+                    'lid' => $cleanJidPart,
+                    'phone' => $phoneNumber,
+                ]);
+            }
+        }
+        
+        // ⭐ PRIORITY 4: Last resort - use whatever we have
+        if (!$phoneNumber) {
+            if ($isRealPhoneNumber) {
+                $phoneNumber = $cleanJidPart;
+            } else {
+                // This is a true LID with no mapping - skip
                 Log::debug('Skipping LID message - no mapping found', [
                     'remoteJid' => $remoteJid,
+                    'remoteJidAlt' => $remoteJidAlt,
                     'lid' => $cleanJidPart,
                 ]);
                 return false;
             }
-            
-            Log::debug('LID resolved to phone number', [
-                'lid' => $cleanJidPart,
-                'phone' => $phoneNumber,
-            ]);
-        } else {
-            // Either a real phone number or a LID that contains a phone number
-            $phoneNumber = $cleanJidPart;
         }
 
         // Minimal validation - just ensure we have something

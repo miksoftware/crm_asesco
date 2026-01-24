@@ -85,6 +85,7 @@ class WebhookController extends Controller
             return match ($event) {
                 'messages.upsert' => $this->processMessageReceived($payload),
                 'messages.update' => $this->processMessageStatus($payload),
+                'send.message' => $this->processSentMessage($payload),
                 'connection.update' => $this->processConnectionUpdate($payload),
                 default => response()->json(['status' => 'ignored', 'event' => $event]),
             };
@@ -195,6 +196,44 @@ class WebhookController extends Controller
     }
 
     /**
+     * Process sent message webhook (send.message event).
+     * 
+     * This captures the real phone number when we send a message,
+     * so we can create LID mappings when the status update arrives with a LID.
+     */
+    private function processSentMessage(array $payload): JsonResponse
+    {
+        $data = $payload['data'] ?? [];
+        $instanceName = $payload['instance'] ?? null;
+        
+        $messageId = $data['key']['id'] ?? null;
+        $remoteJid = $data['key']['remoteJid'] ?? null;
+        
+        if (!$messageId || !$remoteJid) {
+            return response()->json(['status' => 'skipped', 'reason' => 'missing_data']);
+        }
+        
+        // Extract phone number from JID
+        $jidPart = explode('@', $remoteJid)[0];
+        $cleanNumber = explode(':', $jidPart)[0];
+        $isRealPhone = preg_match('/^[1-9]\d{9,14}$/', $cleanNumber);
+        
+        if ($isRealPhone) {
+            // Cache the real phone number for this message ID
+            // When messages.update arrives with LID, we can create the mapping
+            $cacheKey = "lid_mapping:{$messageId}";
+            Cache::put($cacheKey, $cleanNumber, 300); // 5 minutes
+            
+            Log::debug('Cached phone from send.message for LID mapping', [
+                'messageId' => $messageId,
+                'phone' => $cleanNumber,
+            ]);
+        }
+        
+        return response()->json(['status' => 'processed']);
+    }
+
+    /**
      * Process message status update webhook.
      * 
      * IMPORTANT: This also captures LID ↔ phone number mappings.
@@ -218,6 +257,56 @@ class WebhookController extends Controller
         // When we receive a status update, check if we can create a LID mapping
         if ($remoteJid && $messageId) {
             $this->processLidMapping($messageId, $remoteJid, $instanceName);
+            
+            // ⭐ AUTO-FIX: If this is a LID and we have a mapping, fix any existing LID contact
+            if (str_contains($remoteJid, '@lid')) {
+                $lid = explode('@', $remoteJid)[0];
+                $phoneNumber = LidMapping::findPhoneByLid($lid);
+                
+                if ($phoneNumber && $instanceName) {
+                    $channel = \App\Models\Channel::where('instance_name', $instanceName)->first();
+                    if ($channel) {
+                        // Find and fix any contact with this LID as phone_number
+                        $lidContact = \App\Models\Contact::where('channel_id', $channel->id)
+                            ->where('phone_number', $lid)
+                            ->first();
+                        
+                        if ($lidContact) {
+                            // Check if there's already a contact with the real phone
+                            $realContact = \App\Models\Contact::where('channel_id', $channel->id)
+                                ->where('phone_number', $phoneNumber)
+                                ->first();
+                            
+                            if ($realContact && $realContact->id !== $lidContact->id) {
+                                // Merge LID contact into real contact
+                                \App\Models\Message::where('contact_id', $lidContact->id)
+                                    ->update(['contact_id' => $realContact->id]);
+                                $lidContact->labelRelations()->detach();
+                                $lidContact->delete();
+                                
+                                Log::info('Auto-merged LID contact into real contact', [
+                                    'lid' => $lid,
+                                    'phone' => $phoneNumber,
+                                    'merged_contact_id' => $lidContact->id,
+                                    'into_contact_id' => $realContact->id,
+                                ]);
+                            } else {
+                                // Update LID contact with real phone number
+                                $lidContact->update([
+                                    'phone_number' => $phoneNumber,
+                                    'remote_jid' => $phoneNumber . '@s.whatsapp.net',
+                                ]);
+                                
+                                Log::info('Auto-fixed LID contact with real phone', [
+                                    'lid' => $lid,
+                                    'phone' => $phoneNumber,
+                                    'contact_id' => $lidContact->id,
+                                ]);
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         // Map Evolution API status to our status
