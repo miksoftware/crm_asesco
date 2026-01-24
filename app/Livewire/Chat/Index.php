@@ -814,6 +814,36 @@ class Index extends Component
         unset($this->conversations);
     }
 
+    public function markAsUnread(int $contactId): void
+    {
+        if ($this->selectedChannelId === null) return;
+
+        // Mark last incoming message as unread
+        Message::where('contact_id', $contactId)
+            ->where('channel_id', $this->selectedChannelId)
+            ->where('direction', 'incoming')
+            ->orderByDesc('sent_at')
+            ->limit(1)
+            ->update(['is_read' => false]);
+
+        // Create notification for this conversation
+        $notificationService = app(NotificationService::class);
+        $lastMessage = Message::where('contact_id', $contactId)
+            ->where('channel_id', $this->selectedChannelId)
+            ->where('direction', 'incoming')
+            ->orderByDesc('sent_at')
+            ->first();
+
+        if ($lastMessage) {
+            $notificationService->createMessageNotification($lastMessage);
+        }
+
+        $this->dispatch('notifications-updated');
+        unset($this->conversations);
+        
+        $this->dispatch('toast', type: 'success', message: 'Chat marcado como no leído');
+    }
+
     public function updatingSearch(): void
     {
         $this->selectedContactId = null;

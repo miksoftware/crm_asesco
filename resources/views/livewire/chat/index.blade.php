@@ -108,41 +108,51 @@
                 <!-- Conversations List -->
                 <div class="flex-1 overflow-y-auto">
                     @forelse($this->conversations as $contact)
-                        <div wire:click="selectConversation({{ $contact->id }})"
-                             wire:key="contact-{{ $contact->id }}"
-                             class="flex items-center gap-3 p-3 cursor-pointer border-b border-gray-100 hover:bg-gray-50 transition-colors
+                        <div wire:key="contact-{{ $contact->id }}"
+                             class="group relative flex items-center gap-3 p-3 cursor-pointer border-b border-gray-100 hover:bg-gray-50 transition-colors
                                     {{ $selectedContactId === $contact->id ? 'bg-green-50 border-l-4 border-l-green-500' : '' }}
                                     {{ $contact->unread_count > 0 ? 'bg-green-50/50' : '' }}">
-                            <div class="w-12 h-12 rounded-full bg-gray-200 flex items-center justify-center flex-shrink-0 overflow-hidden">
-                                @if($contact->profile_picture)
-                                    <img src="{{ $contact->profile_picture }}" alt="" class="w-full h-full object-cover">
-                                @else
-                                    <span class="text-lg font-semibold text-gray-500">{{ strtoupper(substr($contact->display_name, 0, 1)) }}</span>
-                                @endif
-                            </div>
-                            <div class="flex-1 min-w-0">
-                                <div class="flex items-center justify-between">
-                                    <h4 class="font-medium text-gray-900 truncate {{ $contact->unread_count > 0 ? 'font-bold' : '' }}">
-                                        {{ $contact->display_name }}
-                                    </h4>
-                                    @if($contact->last_message)
-                                        <span class="text-xs {{ $contact->unread_count > 0 ? 'text-green-600 font-semibold' : 'text-gray-400' }} flex-shrink-0 ml-2">
-                                            {{ $contact->last_message->sent_at?->format('H:i') }}
-                                        </span>
+                            <!-- Mark as Unread Button (appears on hover) -->
+                            @if($contact->unread_count == 0)
+                                <button wire:click.stop="markAsUnread({{ $contact->id }})"
+                                        class="absolute right-2 top-2 p-1 rounded-full bg-white shadow-sm border border-gray-200 text-gray-400 hover:text-green-600 hover:border-green-300 opacity-0 group-hover:opacity-100 transition-all z-10"
+                                        title="Marcar como no leído">
+                                    <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
+                                        <circle cx="10" cy="10" r="6"/>
+                                    </svg>
+                                </button>
+                            @endif
+                            <div wire:click="selectConversation({{ $contact->id }})" class="flex items-center gap-3 flex-1 min-w-0">
+                                <div class="w-12 h-12 rounded-full bg-gray-200 flex items-center justify-center flex-shrink-0 overflow-hidden">
+                                    @if($contact->profile_picture)
+                                        <img src="{{ $contact->profile_picture }}" alt="" class="w-full h-full object-cover">
+                                    @else
+                                        <span class="text-lg font-semibold text-gray-500">{{ strtoupper(substr($contact->display_name, 0, 1)) }}</span>
                                     @endif
                                 </div>
-                                <div class="flex items-center justify-between mt-0.5">
-                                    <p class="text-sm text-gray-500 truncate {{ $contact->unread_count > 0 ? 'font-medium text-gray-700' : '' }}">
+                                <div class="flex-1 min-w-0">
+                                    <div class="flex items-center justify-between">
+                                        <h4 class="font-medium text-gray-900 truncate {{ $contact->unread_count > 0 ? 'font-bold' : '' }}">
+                                            {{ $contact->display_name }}
+                                        </h4>
                                         @if($contact->last_message)
-                                            @if($contact->last_message->direction === 'outgoing')
-                                                @if($contact->last_message->status === 'read')
-                                                    <svg class="w-4 h-4 inline text-blue-500" fill="currentColor" viewBox="0 0 24 24"><path d="M18 7l-1.41-1.41-6.34 6.34 1.41 1.41L18 7zm4.24-1.41L11.66 16.17 7.48 12l-1.41 1.41L11.66 19l12-12-1.42-1.41zM.41 13.41L6 19l1.41-1.41L1.83 12 .41 13.41z"/></svg>
-                                                @elseif($contact->last_message->status === 'delivered')
-                                                    <svg class="w-4 h-4 inline text-gray-400" fill="currentColor" viewBox="0 0 24 24"><path d="M18 7l-1.41-1.41-6.34 6.34 1.41 1.41L18 7zm4.24-1.41L11.66 16.17 7.48 12l-1.41 1.41L11.66 19l12-12-1.42-1.41zM.41 13.41L6 19l1.41-1.41L1.83 12 .41 13.41z"/></svg>
-                                                @else
-                                                    <svg class="w-4 h-4 inline text-gray-400" fill="currentColor" viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/></svg>
+                                            <span class="text-xs {{ $contact->unread_count > 0 ? 'text-green-600 font-semibold' : 'text-gray-400' }} flex-shrink-0 ml-2">
+                                                {{ $contact->last_message->sent_at?->format('H:i') }}
+                                            </span>
+                                        @endif
+                                    </div>
+                                    <div class="flex items-center justify-between mt-0.5">
+                                        <p class="text-sm text-gray-500 truncate {{ $contact->unread_count > 0 ? 'font-medium text-gray-700' : '' }}">
+                                            @if($contact->last_message)
+                                                @if($contact->last_message->direction === 'outgoing')
+                                                    @if($contact->last_message->status === 'read')
+                                                        <svg class="w-4 h-4 inline text-blue-500" fill="currentColor" viewBox="0 0 24 24"><path d="M18 7l-1.41-1.41-6.34 6.34 1.41 1.41L18 7zm4.24-1.41L11.66 16.17 7.48 12l-1.41 1.41L11.66 19l12-12-1.42-1.41zM.41 13.41L6 19l1.41-1.41L1.83 12 .41 13.41z"/></svg>
+                                                    @elseif($contact->last_message->status === 'delivered')
+                                                        <svg class="w-4 h-4 inline text-gray-400" fill="currentColor" viewBox="0 0 24 24"><path d="M18 7l-1.41-1.41-6.34 6.34 1.41 1.41L18 7zm4.24-1.41L11.66 16.17 7.48 12l-1.41 1.41L11.66 19l12-12-1.42-1.41zM.41 13.41L6 19l1.41-1.41L1.83 12 .41 13.41z"/></svg>
+                                                    @else
+                                                        <svg class="w-4 h-4 inline text-gray-400" fill="currentColor" viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/></svg>
+                                                    @endif
                                                 @endif
-                                            @endif
                                             {{ Str::limit($contact->last_message->content ?? '[Media]', 25) }}
                                         @else
                                             Sin mensajes
@@ -153,6 +163,7 @@
                                     @endif
                                 </div>
                             </div>
+                        </div>
                         </div>
                     @empty
                         <div class="p-6 text-center text-gray-500">
