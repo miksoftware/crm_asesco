@@ -75,58 +75,19 @@ class FixLidContacts extends Command
     {
         $this->line('  → Buscando contactos con LID...');
         
-        // STRATEGY 1: Find contacts with @lid in remote_jid
+        // Find ALL contacts where phone_number doesn't look like a real phone number
+        // Real Colombian numbers: 57 + 10 digits = 12 digits total
+        // Real international numbers: 10-15 digits starting with 1-9
         $lidContacts = Contact::where('channel_id', $channel->id)
-            ->where('remote_jid', 'like', '%@lid')
-            ->get();
-        
-        // STRATEGY 2: Find duplicate contacts by push_name (same name = likely LID duplicate)
-        $duplicateNames = Contact::where('channel_id', $channel->id)
-            ->whereNotNull('push_name')
-            ->where('push_name', '!=', '')
-            ->select('push_name')
-            ->groupBy('push_name')
-            ->havingRaw('COUNT(*) > 1')
-            ->pluck('push_name');
-        
-        foreach ($duplicateNames as $pushName) {
-            $contacts = Contact::where('channel_id', $channel->id)
-                ->where('push_name', $pushName)
-                ->get();
-            
-            // Find which one is the "real" phone (Colombian numbers start with 57 and have 12 digits)
-            $realContact = $contacts->first(function ($c) {
-                return preg_match('/^57[0-9]{10}$/', $c->phone_number);
-            });
-            
-            if ($realContact) {
-                // All others with same name are potential LIDs
-                foreach ($contacts as $contact) {
-                    if ($contact->id !== $realContact->id && !$lidContacts->contains('id', $contact->id)) {
-                        $lidContacts->push($contact);
-                    }
-                }
-            }
-        }
-        
-        // STRATEGY 3: Numbers that don't look like valid phone numbers
-        $suspiciousContacts = Contact::where('channel_id', $channel->id)
             ->where(function ($q) {
-                // Too long (>15 digits)
+                // Phone numbers that are too long (LIDs are usually 13+ digits)
                 $q->whereRaw("LENGTH(phone_number) > 15")
-                  // Or doesn't match Colombian pattern and is long
-                  ->orWhere(function ($q2) {
-                      $q2->whereRaw("phone_number NOT REGEXP '^57[0-9]{10}$'")
-                         ->whereRaw("LENGTH(phone_number) > 13");
-                  });
+                  // Or don't match valid phone pattern (10-15 digits starting with valid country code)
+                  ->orWhereRaw("phone_number NOT REGEXP '^[1-9][0-9]{9,14}$'")
+                  // Or have @lid in remote_jid
+                  ->orWhere('remote_jid', 'like', '%@lid');
             })
             ->get();
-        
-        foreach ($suspiciousContacts as $contact) {
-            if (!$lidContacts->contains('id', $contact->id)) {
-                $lidContacts->push($contact);
-            }
-        }
         
         if ($lidContacts->isEmpty()) {
             $this->line('    ✓ No hay contactos con LID');
@@ -138,7 +99,7 @@ class FixLidContacts extends Command
         foreach ($lidContacts as $contact) {
             $lid = $contact->phone_number;
             
-            $this->line("    Procesando LID: {$lid} (Contact ID: {$contact->id}, Name: {$contact->push_name})");
+            $this->line("    Procesando LID: {$lid} (ID: {$contact->id}, Name: {$contact->push_name})");
             
             // Try to find a matching contact with same push_name in same channel
             $matchingContact = null;
