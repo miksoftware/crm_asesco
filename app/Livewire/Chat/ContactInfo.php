@@ -267,6 +267,39 @@ class ContactInfo extends Component
             ->get();
     }
 
+    /**
+     * Get users assigned to this channel.
+     */
+    public function getChannelUsersProperty()
+    {
+        $channel = \App\Models\Channel::find($this->channelId);
+        if (!$channel) {
+            return collect();
+        }
+        
+        return $channel->users()->orderBy('name')->get();
+    }
+
+    /**
+     * Assign a user to this contact.
+     */
+    public function assignUser(?int $userId): void
+    {
+        $this->contact->update([
+            'assigned_user_id' => $userId,
+        ]);
+
+        $this->contact->refresh();
+        $this->dispatch('contact-updated');
+        
+        if ($userId) {
+            $user = \App\Models\User::find($userId);
+            $this->dispatch('toast', type: 'success', message: 'Asignado a ' . ($user?->name ?? 'usuario'));
+        } else {
+            $this->dispatch('toast', type: 'success', message: 'Asignación removida');
+        }
+    }
+
     #[On('refresh-contact-info')]
     public function refreshContact(): void
     {

@@ -12,6 +12,7 @@ class Message extends Model
     protected $fillable = [
         'contact_id',
         'channel_id',
+        'user_id',
         'message_id',
         'direction',
         'type',
@@ -44,5 +45,13 @@ class Message extends Model
     public function channel(): BelongsTo
     {
         return $this->belongsTo(Channel::class);
+    }
+
+    /**
+     * Get the user who sent this message (for outgoing messages).
+     */
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(User::class);
     }
 }

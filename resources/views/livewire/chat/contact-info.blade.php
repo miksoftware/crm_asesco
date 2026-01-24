@@ -101,6 +101,69 @@
             @endif
         </div>
 
+        <!-- Assign User Section -->
+        <div class="p-4 border-b border-gray-200">
+            <h4 class="text-sm font-semibold text-gray-700 mb-3">Asignar a</h4>
+            <div class="relative" x-data="{ open: false }">
+                <button @click="open = !open" 
+                        type="button"
+                        class="w-full flex items-center justify-between px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
+                    @if($contact->assigned_user_id && $contact->assignedUser)
+                        <span class="flex items-center gap-2">
+                            <span class="w-6 h-6 rounded-full bg-orange-100 flex items-center justify-center text-xs font-medium text-orange-600">
+                                {{ strtoupper(substr($contact->assignedUser->name, 0, 1)) }}
+                            </span>
+                            <span class="text-gray-700">{{ $contact->assignedUser->name }}</span>
+                        </span>
+                    @else
+                        <span class="text-gray-400">Sin asignar</span>
+                    @endif
+                    <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                    </svg>
+                </button>
+                
+                <!-- Dropdown Menu -->
+                <div x-show="open" 
+                     @click.away="open = false"
+                     x-transition
+                     class="absolute left-0 right-0 mt-2 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-10 max-h-48 overflow-y-auto">
+                    <!-- Option to unassign -->
+                    @if($contact->assigned_user_id)
+                        <button wire:click="assignUser(null)"
+                                @click="open = false"
+                                wire:loading.attr="disabled"
+                                class="w-full px-3 py-2 text-left text-sm hover:bg-gray-50 flex items-center gap-2 transition-colors text-gray-500">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                            </svg>
+                            <span>Sin asignar</span>
+                        </button>
+                        <div class="border-t border-gray-100 my-1"></div>
+                    @endif
+                    
+                    @forelse($this->channelUsers as $user)
+                        <button wire:click="assignUser({{ $user->id }})"
+                                @click="open = false"
+                                wire:loading.attr="disabled"
+                                class="w-full px-3 py-2 text-left text-sm hover:bg-gray-50 flex items-center gap-2 transition-colors {{ $contact->assigned_user_id === $user->id ? 'bg-orange-50' : '' }}">
+                            <span class="w-6 h-6 rounded-full bg-orange-100 flex items-center justify-center text-xs font-medium text-orange-600">
+                                {{ strtoupper(substr($user->name, 0, 1)) }}
+                            </span>
+                            <span class="flex-1">{{ $user->name }}</span>
+                            @if($contact->assigned_user_id === $user->id)
+                                <svg class="w-4 h-4 text-orange-500" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
+                                </svg>
+                            @endif
+                        </button>
+                    @empty
+                        <p class="px-3 py-2 text-sm text-gray-400">No hay usuarios asignados a este canal</p>
+                    @endforelse
+                </div>
+            </div>
+        </div>
+
         <!-- Quick Actions Section -->
         <livewire:chat.quick-actions :contact="$contact" :channel-id="$channelId" :key="'quick-actions-'.$contact->id" />
 

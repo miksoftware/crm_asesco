@@ -132,9 +132,16 @@
                                 </div>
                                 <div class="flex-1 min-w-0">
                                     <div class="flex items-center justify-between">
-                                        <h4 class="font-medium text-gray-900 truncate {{ $contact->unread_count > 0 ? 'font-bold' : '' }}">
-                                            {{ $contact->display_name }}
-                                        </h4>
+                                        <div class="flex items-center gap-2 min-w-0">
+                                            <h4 class="font-medium text-gray-900 truncate {{ $contact->unread_count > 0 ? 'font-bold' : '' }}">
+                                                {{ $contact->display_name }}
+                                            </h4>
+                                            @if($contact->assigned_user_id && $contact->assignedUser)
+                                                <span class="flex-shrink-0 px-1.5 py-0.5 text-[10px] font-medium bg-orange-100 text-orange-700 rounded">
+                                                    {{ Str::before($contact->assignedUser->name, ' ') }}
+                                                </span>
+                                            @endif
+                                        </div>
                                         @if($contact->last_message)
                                             <span class="text-xs {{ $contact->unread_count > 0 ? 'text-green-600 font-semibold' : 'text-gray-400' }} flex-shrink-0 ml-2">
                                                 {{ $contact->last_message->sent_at?->format('H:i') }}
@@ -257,6 +264,9 @@
                             <div wire:key="message-{{ $message->id }}" class="flex {{ $message->direction === 'outgoing' ? 'justify-end' : 'justify-start' }} mb-1">
                                 <div class="max-w-[65%] {{ $message->direction === 'outgoing' ? 'bg-[#d9fdd3]' : 'bg-white' }} rounded-lg px-3 py-1.5 shadow-sm relative min-w-[80px]"
                                      style="{{ $message->direction === 'outgoing' ? 'border-top-right-radius: 0;' : 'border-top-left-radius: 0;' }}">
+                                    @if($message->direction === 'outgoing' && $message->user)
+                                        <p class="text-[11px] font-medium text-orange-600 mb-0.5">{{ $message->user->name }}</p>
+                                    @endif
                                     @if($message->type === 'text')
                                         <p class="text-sm text-gray-800 whitespace-pre-wrap break-words pr-14">{{ $message->content ?: '[Mensaje vacío]' }}</p>
                                     @elseif($message->type === 'image')

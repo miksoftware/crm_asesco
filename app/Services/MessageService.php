@@ -46,6 +46,7 @@ class MessageService
         $message = Message::create([
             'contact_id' => $contact->id,
             'channel_id' => $channelId,
+            'user_id' => auth()->id(),
             'direction' => 'outgoing',
             'type' => 'text',
             'content' => $text,

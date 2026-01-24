@@ -154,7 +154,7 @@ class Index extends Component
             });
         }
 
-        $contacts = $query->with(['messages' => function ($q) {
+        $contacts = $query->with(['assignedUser', 'messages' => function ($q) {
             $q->orderByDesc('sent_at')->orderByDesc('created_at')->limit(1);
         }])->get();
 
@@ -185,7 +185,8 @@ class Index extends Component
             return collect();
         }
 
-        $query = Message::where('contact_id', $this->selectedContactId)
+        $query = Message::with('user')
+            ->where('contact_id', $this->selectedContactId)
             ->where('channel_id', $this->selectedChannelId)
             ->orderBy('sent_at', 'asc')
             ->orderBy('id', 'asc');
@@ -343,6 +344,7 @@ class Index extends Component
                 Message::create([
                     'contact_id' => $contact->id,
                     'channel_id' => $this->selectedChannelId,
+                    'user_id' => auth()->id(),
                     'message_id' => $response['data']['key']['id'] ?? null,
                     'direction' => 'outgoing',
                     'type' => $type,
@@ -447,6 +449,7 @@ class Index extends Component
                 Message::create([
                     'contact_id' => $contact->id,
                     'channel_id' => $this->selectedChannelId,
+                    'user_id' => auth()->id(),
                     'message_id' => $response['data']['key']['id'] ?? null,
                     'direction' => 'outgoing',
                     'type' => 'audio',
@@ -672,6 +675,7 @@ class Index extends Component
                 Message::create([
                     'contact_id' => $contact->id,
                     'channel_id' => $this->selectedChannelId,
+                    'user_id' => auth()->id(),
                     'message_id' => $response['data']['key']['id'] ?? null,
                     'direction' => 'outgoing',
                     'type' => 'text',
