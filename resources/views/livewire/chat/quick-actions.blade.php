@@ -50,6 +50,20 @@
                 <span wire:loading wire:target="sendReminder">Enviando...</span>
             </span>
         </button>
+
+        <!-- Mark as Unread Button -->
+        <button wire:click="markAsUnread"
+                wire:loading.attr="disabled"
+                wire:target="markAsUnread"
+                class="flex flex-col items-center justify-center p-3 bg-purple-50 hover:bg-purple-100 rounded-lg border border-purple-200 transition-colors group disabled:opacity-50 col-span-2">
+            <svg class="w-5 h-5 text-purple-600 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+            </svg>
+            <span class="text-xs font-medium text-purple-700 text-center">
+                <span wire:loading.remove wire:target="markAsUnread">Marcar como no leído</span>
+                <span wire:loading wire:target="markAsUnread">Procesando...</span>
+            </span>
+        </button>
     </div>
 
     <!-- Promise Modal -->

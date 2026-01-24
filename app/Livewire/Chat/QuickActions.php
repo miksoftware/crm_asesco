@@ -236,6 +236,36 @@ class QuickActions extends Component
     }
 
     /**
+     * Mark conversation as unread.
+     */
+    public function markAsUnread(): void
+    {
+        // Mark last incoming message as unread
+        \App\Models\Message::where('contact_id', $this->contact->id)
+            ->where('channel_id', $this->channelId)
+            ->where('direction', 'incoming')
+            ->orderByDesc('sent_at')
+            ->limit(1)
+            ->update(['is_read' => false]);
+
+        // Create notification for this conversation
+        $notificationService = app(\App\Services\NotificationService::class);
+        $lastMessage = \App\Models\Message::where('contact_id', $this->contact->id)
+            ->where('channel_id', $this->channelId)
+            ->where('direction', 'incoming')
+            ->orderByDesc('sent_at')
+            ->first();
+
+        if ($lastMessage) {
+            $notificationService->createMessageNotification($lastMessage);
+        }
+
+        $this->dispatch('notifications-updated');
+        $this->dispatch('contact-updated');
+        $this->dispatch('toast', type: 'success', message: 'Chat marcado como no leído');
+    }
+
+    /**
      * Add a label to the contact if not already present.
      */
     private function addLabelToContact(string $labelValue): void
