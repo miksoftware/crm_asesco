@@ -22,8 +22,19 @@ class Login extends Component
     {
         $this->validate();
 
+        // Check if user exists and is active
+        $user = \App\Models\User::where('email', $this->email)->first();
+        
+        if ($user && !$user->is_active) {
+            $this->addError('email', 'Tu cuenta está desactivada. Contacta al administrador.');
+            return;
+        }
+
         if (Auth::attempt(['email' => $this->email, 'password' => $this->password], $this->remember)) {
             session()->regenerate();
+            
+            // Update last login timestamp
+            Auth::user()->update(['last_login_at' => now()]);
             
             // Redirección tradicional con JavaScript para evitar problemas de Livewire
             $this->js('window.location.href = "' . route('dashboard') . '"');

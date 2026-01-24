@@ -64,18 +64,28 @@
                                 @endif
                             </button>
                         </th>
-                        <th class="px-6 py-3 text-left">
-                            <button wire:click="sortBy('created_at')" class="flex items-center gap-1 text-xs font-semibold text-gray-600 uppercase tracking-wider hover:text-gray-900">
-                                Fecha Registro
-                                @if($sortBy === 'created_at')
+                        <th class="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                            Roles
+                        </th>
+                        <th class="px-6 py-3 text-center">
+                            <button wire:click="sortBy('is_active')" class="flex items-center justify-center gap-1 text-xs font-semibold text-gray-600 uppercase tracking-wider hover:text-gray-900 w-full">
+                                Estatus
+                                @if($sortBy === 'is_active')
                                     <svg class="w-4 h-4 {{ $sortDir === 'asc' ? '' : 'rotate-180' }}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7"/>
                                     </svg>
                                 @endif
                             </button>
                         </th>
-                        <th class="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                            Roles
+                        <th class="px-6 py-3 text-left">
+                            <button wire:click="sortBy('last_login_at')" class="flex items-center gap-1 text-xs font-semibold text-gray-600 uppercase tracking-wider hover:text-gray-900">
+                                Última Conexión
+                                @if($sortBy === 'last_login_at')
+                                    <svg class="w-4 h-4 {{ $sortDir === 'asc' ? '' : 'rotate-180' }}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7"/>
+                                    </svg>
+                                @endif
+                            </button>
                         </th>
                         <th class="px-6 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">
                             Acciones
@@ -92,7 +102,6 @@
                                 </div>
                             </td>
                             <td class="px-6 py-4 text-gray-600">{{ $user->email }}</td>
-                            <td class="px-6 py-4 text-gray-500 text-sm">{{ $user->created_at->format('d/m/Y H:i') }}</td>
                             <td class="px-6 py-4">
                                 <div class="flex flex-wrap gap-1">
                                     @forelse($user->roles as $role)
@@ -105,6 +114,29 @@
                                         <span class="text-gray-400 text-sm">Sin rol</span>
                                     @endforelse
                                 </div>
+                            </td>
+                            <td class="px-6 py-4 text-center">
+                                @if($user->is_active)
+                                    <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700">
+                                        <span class="w-1.5 h-1.5 rounded-full bg-green-500"></span>
+                                        Activo
+                                    </span>
+                                @else
+                                    <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-red-100 text-red-700">
+                                        <span class="w-1.5 h-1.5 rounded-full bg-red-500"></span>
+                                        Inactivo
+                                    </span>
+                                @endif
+                            </td>
+                            <td class="px-6 py-4 text-gray-500 text-sm">
+                                @if($user->last_login_at)
+                                    <div class="flex flex-col">
+                                        <span>{{ $user->last_login_at->format('d/m/Y') }}</span>
+                                        <span class="text-xs text-gray-400">{{ $user->last_login_at->format('H:i') }}</span>
+                                    </div>
+                                @else
+                                    <span class="text-gray-400 italic">Nunca</span>
+                                @endif
                             </td>
                             <td class="px-6 py-4">
                                 <div class="flex items-center justify-end gap-2">
@@ -129,7 +161,7 @@
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="5" class="px-6 py-12 text-center">
+                            <td colspan="6" class="px-6 py-12 text-center">
                                 <div class="flex flex-col items-center">
                                     <svg class="w-12 h-12 text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/>

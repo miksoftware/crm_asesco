@@ -26,12 +26,14 @@ class Edit extends Component
     public string $password_confirmation = '';
     public array $selectedRoles = [];
     public $photo = null;
+    public bool $isActive = true;
 
     public function mount(User $user): void
     {
         $this->user = $user;
         $this->name = $user->name;
         $this->email = $user->email;
+        $this->isActive = $user->is_active ?? true;
         $this->selectedRoles = $user->roles->pluck('id')->toArray();
     }
 
@@ -61,6 +63,7 @@ class Edit extends Component
         $data = [
             'name' => $this->name,
             'email' => $this->email,
+            'is_active' => $this->isActive,
         ];
 
         if (!empty($this->password)) {

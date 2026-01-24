@@ -33,6 +33,8 @@ class Create extends Component
 
     public array $selectedRoles = [];
 
+    public bool $isActive = true;
+
     public function save(): void
     {
         $this->validate();
@@ -41,6 +43,7 @@ class Create extends Component
             'name' => $this->name,
             'email' => $this->email,
             'password' => Hash::make($this->password),
+            'is_active' => $this->isActive,
         ];
 
         if ($this->photo) {
