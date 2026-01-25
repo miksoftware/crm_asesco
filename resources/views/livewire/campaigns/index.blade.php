@@ -31,14 +31,14 @@
                     <input type="text" 
                            wire:model.live.debounce.300ms="search"
                            placeholder="Buscar campañas..."
-                           class="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500">
+                           class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500">
                 </div>
             </div>
 
             {{-- Filtro de estado --}}
-            <div class="w-full sm:w-48">
+            <div class="w-full sm:w-44">
                 <select wire:model.live="statusFilter"
-                        class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500">
+                        class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500">
                     <option value="">Todos los estados</option>
                     <option value="draft">Borrador</option>
                     <option value="pending">Pendiente</option>
@@ -50,9 +50,9 @@
             </div>
 
             {{-- Items por página --}}
-            <div class="w-full sm:w-32">
+            <div class="w-full sm:w-20">
                 <select wire:model.live="perPage"
-                        class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500">
+                        class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500">
                     <option value="10">10</option>
                     <option value="25">25</option>
                     <option value="50">50</option>
