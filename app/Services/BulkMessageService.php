@@ -5,6 +5,8 @@ namespace App\Services;
 use App\Models\Campaign;
 use App\Models\CampaignRecipient;
 use App\Models\Channel;
+use App\Models\Contact;
+use App\Models\Message;
 use Illuminate\Support\Facades\Log;
 
 class BulkMessageService
@@ -58,9 +60,14 @@ class BulkMessageService
             );
 
             if ($response['success']) {
+                $messageId = $response['data']['key']['id'] ?? null;
+                
+                // Guardar mensaje en la base de datos local
+                $this->saveMessageToDatabase($channel, $phoneNumber, $message, $messageId, $campaign->user_id);
+                
                 $recipient->update([
                     'status' => 'sent',
-                    'message_id' => $response['data']['key']['id'] ?? null,
+                    'message_id' => $messageId,
                     'sent_at' => now(),
                 ]);
                 
@@ -134,6 +141,50 @@ class BulkMessageService
         }
         
         return $normalized;
+    }
+
+    /**
+     * Guarda el mensaje enviado en la base de datos local.
+     */
+    private function saveMessageToDatabase(Channel $channel, string $phoneNumber, string $message, ?string $messageId, ?int $userId): void
+    {
+        try {
+            $remoteJid = $phoneNumber . '@s.whatsapp.net';
+            
+            // Buscar o crear el contacto
+            $contact = Contact::firstOrCreate(
+                [
+                    'channel_id' => $channel->id,
+                    'remote_jid' => $remoteJid,
+                ],
+                [
+                    'phone_number' => $phoneNumber,
+                    'name' => null,
+                    'push_name' => null,
+                ]
+            );
+
+            // Crear el mensaje
+            Message::create([
+                'contact_id' => $contact->id,
+                'message_id' => $messageId ?? ('bulk_' . uniqid()),
+                'from_me' => true,
+                'message_type' => 'text',
+                'content' => $message,
+                'status' => 'sent',
+                'user_id' => $userId,
+                'created_at' => now(),
+            ]);
+
+            // Actualizar última actividad del contacto
+            $contact->touch();
+            
+        } catch (\Exception $e) {
+            Log::warning('Failed to save bulk message to database', [
+                'phone' => $phoneNumber,
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     /**
