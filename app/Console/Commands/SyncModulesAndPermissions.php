@@ -22,9 +22,10 @@ class SyncModulesAndPermissions extends Command
             ['name' => 'canales', 'display_name' => 'Canales', 'icon' => 'chat', 'order' => 2],
             ['name' => 'usuarios', 'display_name' => 'Usuarios', 'icon' => 'users', 'order' => 3],
             ['name' => 'roles', 'display_name' => 'Roles', 'icon' => 'shield', 'order' => 4],
-            ['name' => 'clientes', 'display_name' => 'Clientes', 'icon' => 'users', 'order' => 5],
-            ['name' => 'cobranzas', 'display_name' => 'Cobranzas', 'icon' => 'clipboard', 'order' => 6],
-            ['name' => 'reportes', 'display_name' => 'Reportes', 'icon' => 'chart', 'order' => 7],
+            ['name' => 'etiquetas', 'display_name' => 'Etiquetas', 'icon' => 'tag', 'order' => 5],
+            ['name' => 'clientes', 'display_name' => 'Clientes', 'icon' => 'users', 'order' => 6],
+            ['name' => 'cobranzas', 'display_name' => 'Cobranzas', 'icon' => 'clipboard', 'order' => 7],
+            ['name' => 'reportes', 'display_name' => 'Reportes', 'icon' => 'chart', 'order' => 8],
         ];
 
         // Módulos con permisos personalizados

@@ -6,7 +6,6 @@ use App\Models\Contact;
 use App\Models\Label;
 use Livewire\Component;
 use Livewire\Attributes\On;
-use Illuminate\Support\Str;
 
 /**
  * Contact Info Panel Component
@@ -25,11 +24,6 @@ class ContactInfo extends Component
 
     // Permission flag
     public bool $canManageLabels = false;
-
-    // New label modal
-    public bool $showNewLabelModal = false;
-    public string $newLabelName = '';
-    public string $newLabelColor = '#6b7280';
 
     public function mount(Contact $contact, ?int $channelId = null): void
     {
@@ -126,69 +120,6 @@ class ContactInfo extends Component
 
         $this->dispatch('contact-updated');
         $this->dispatch('toast', type: 'success', message: 'Etiqueta eliminada');
-    }
-
-    /**
-     * Open the new label modal.
-     */
-    public function openNewLabelModal(): void
-    {
-        $this->showNewLabelModal = true;
-        $this->newLabelName = '';
-        $this->newLabelColor = '#6b7280';
-    }
-
-    /**
-     * Close the new label modal.
-     */
-    public function closeNewLabelModal(): void
-    {
-        $this->showNewLabelModal = false;
-        $this->newLabelName = '';
-        $this->newLabelColor = '#6b7280';
-    }
-
-    /**
-     * Create a new label.
-     */
-    public function createLabel(): void
-    {
-        if (!$this->canManageLabels) {
-            $this->dispatch('toast', type: 'error', message: 'No tienes permiso para crear etiquetas');
-            return;
-        }
-
-        $this->validate([
-            'newLabelName' => 'required|string|min:2|max:50',
-            'newLabelColor' => 'required|string|regex:/^#[0-9A-Fa-f]{6}$/',
-        ], [
-            'newLabelName.required' => 'El nombre es requerido',
-            'newLabelName.min' => 'El nombre debe tener al menos 2 caracteres',
-            'newLabelColor.regex' => 'El color debe ser un código hexadecimal válido',
-        ]);
-
-        $slug = Str::slug($this->newLabelName);
-        
-        // Check if slug already exists
-        if (Label::where('slug', $slug)->exists()) {
-            $this->dispatch('toast', type: 'error', message: 'Ya existe una etiqueta con ese nombre');
-            return;
-        }
-
-        $label = Label::create([
-            'name' => $this->newLabelName,
-            'slug' => $slug,
-            'color' => $this->newLabelColor,
-            'is_system' => false,
-        ]);
-
-        // Automatically add the new label to the current contact
-        $this->contact->labelRelations()->attach($label->id);
-        $this->contact->refresh();
-
-        $this->closeNewLabelModal();
-        $this->dispatch('contact-updated');
-        $this->dispatch('toast', type: 'success', message: 'Etiqueta creada y asignada');
     }
 
     /**

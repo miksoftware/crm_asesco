@@ -39,11 +39,6 @@
         <div class="p-4 border-b border-gray-200">
             <div class="flex items-center justify-between mb-3">
                 <h4 class="text-sm font-semibold text-gray-700">Etiquetas</h4>
-                @if($canManageLabels)
-                    <button wire:click="openNewLabelModal" class="text-xs text-green-600 hover:text-green-700 font-medium">
-                        + Nueva
-                    </button>
-                @endif
             </div>
             
             <!-- Current Labels -->
@@ -339,45 +334,4 @@
             @endif
         </div>
     </div>
-
-    <!-- New Label Modal -->
-    @teleport('body')
-        <div x-data="{ show: @entangle('showNewLabelModal') }" x-show="show" x-cloak class="fixed inset-0 z-50 overflow-y-auto">
-            <div class="flex items-center justify-center min-h-screen px-4">
-                <div class="fixed inset-0 bg-black/30 backdrop-blur-sm" x-show="show" x-transition wire:click="closeNewLabelModal"></div>
-                <div class="relative bg-white rounded-2xl shadow-xl w-full max-w-sm p-6" x-show="show" x-transition>
-                    <h3 class="text-lg font-semibold text-gray-900 mb-4">Nueva Etiqueta</h3>
-                    <form wire:submit="createLabel" class="space-y-4">
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Nombre</label>
-                            <input type="text" wire:model="newLabelName" 
-                                   class="w-full px-4 py-2.5 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500" 
-                                   placeholder="Ej: Urgente">
-                            @error('newLabelName') <p class="mt-1 text-sm text-red-600">{{ $message }}</p> @enderror
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Color</label>
-                            <div class="flex items-center gap-3">
-                                <input type="color" wire:model="newLabelColor" class="w-12 h-10 rounded border-0 cursor-pointer">
-                                <input type="text" wire:model="newLabelColor" 
-                                       class="flex-1 px-4 py-2.5 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-green-500" 
-                                       placeholder="#6b7280">
-                            </div>
-                            @error('newLabelColor') <p class="mt-1 text-sm text-red-600">{{ $message }}</p> @enderror
-                        </div>
-                        <div class="flex gap-3 pt-2">
-                            <button type="button" wire:click="closeNewLabelModal" 
-                                    class="flex-1 px-4 py-2.5 border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50 font-medium">
-                                Cancelar
-                            </button>
-                            <button type="submit" 
-                                    class="flex-1 px-4 py-2.5 bg-green-500 text-white rounded-xl hover:bg-green-600 font-medium">
-                                Crear
-                            </button>
-                        </div>
-                    </form>
-                </div>
-            </div>
-        </div>
-    @endteleport
 </div>
