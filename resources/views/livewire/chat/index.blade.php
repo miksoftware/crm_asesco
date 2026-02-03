@@ -533,38 +533,54 @@
                                         </div>
 
                                         <!-- Text Input -->
-                                        <form wire:submit="sendMessage" class="flex-1 flex items-end gap-2"
+                                        <form wire:submit="sendMessage" class="flex-1 flex items-end gap-2 relative"
                                               x-data="{ 
                                                   sending: false,
                                                   pastedImage: null,
                                                   pastedImagePreview: null,
                                                   isDragging: false,
+                                                  init() {
+                                                      // Listen for paste on the whole document when this form is focused
+                                                      this.$el.addEventListener('paste', (e) => this.handlePaste(e));
+                                                  },
                                                   handlePaste(e) {
+                                                      console.log('Paste event triggered', e.clipboardData?.items);
                                                       const items = e.clipboardData?.items;
                                                       if (!items) return;
                                                       for (let item of items) {
+                                                          console.log('Item type:', item.type);
                                                           if (item.type.startsWith('image/')) {
                                                               e.preventDefault();
                                                               const file = item.getAsFile();
-                                                              this.processImage(file);
+                                                              if (file) {
+                                                                  console.log('Processing image file:', file.name, file.type);
+                                                                  this.processImage(file);
+                                                              }
                                                               break;
                                                           }
                                                       }
                                                   },
                                                   handleDrop(e) {
+                                                      console.log('Drop event triggered');
                                                       this.isDragging = false;
                                                       const files = e.dataTransfer?.files;
                                                       if (!files || files.length === 0) return;
                                                       const file = files[0];
+                                                      console.log('Dropped file:', file.name, file.type);
                                                       if (file.type.startsWith('image/')) {
                                                           this.processImage(file);
                                                       }
                                                   },
                                                   processImage(file) {
+                                                      console.log('Processing image:', file.name);
                                                       const reader = new FileReader();
                                                       reader.onload = (e) => {
+                                                          console.log('Image loaded, setting preview');
                                                           this.pastedImagePreview = e.target.result;
                                                           this.pastedImage = e.target.result.split(',')[1];
+                                                      };
+                                                      reader.onerror = (e) => {
+                                                          console.error('Error reading file:', e);
                                                       };
                                                       reader.readAsDataURL(file);
                                                   },
@@ -583,7 +599,6 @@
                                                       }
                                                   }
                                               }"
-                                              @paste="handlePaste($event)"
                                               @dragover.prevent="isDragging = true"
                                               @dragleave.prevent="isDragging = false"
                                               @drop.prevent="handleDrop($event)">
@@ -634,6 +649,7 @@
                                                           class="w-full px-4 py-2.5 bg-white border-0 rounded-3xl focus:ring-0 resize-none text-sm"
                                                           placeholder="Escribe un mensaje o pega una imagen..."
                                                           :disabled="sending"
+                                                          @paste="handlePaste($event)"
                                                           x-on:keydown.enter="if (!$event.shiftKey && !sending) { 
                                                               $event.preventDefault(); 
                                                               if (pastedImage) { 

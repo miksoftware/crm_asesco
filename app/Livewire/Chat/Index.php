@@ -121,14 +121,32 @@ class Index extends Component
     }
 
     /**
+     * Get unread message counts for all channels at once (cached).
+     */
+    #[Computed]
+    public function channelUnreadCounts(): array
+    {
+        $channelIds = $this->channels->pluck('id')->toArray();
+        
+        if (empty($channelIds)) {
+            return [];
+        }
+
+        return Message::whereIn('channel_id', $channelIds)
+            ->where('direction', 'incoming')
+            ->where('is_read', false)
+            ->selectRaw('channel_id, COUNT(*) as count')
+            ->groupBy('channel_id')
+            ->pluck('count', 'channel_id')
+            ->toArray();
+    }
+
+    /**
      * Get unread message count for a specific channel.
      */
     public function getChannelUnreadCount(int $channelId): int
     {
-        return Message::where('channel_id', $channelId)
-            ->where('direction', 'incoming')
-            ->where('is_read', false)
-            ->count();
+        return $this->channelUnreadCounts[$channelId] ?? 0;
     }
 
     #[Computed]
@@ -138,8 +156,14 @@ class Index extends Component
             return collect();
         }
 
+        // Use a more efficient query with subqueries instead of whereHas
         $query = Contact::where('channel_id', $this->selectedChannelId)
-            ->whereHas('messages');
+            ->whereExists(function ($q) {
+                $q->selectRaw('1')
+                  ->from('messages')
+                  ->whereColumn('messages.contact_id', 'contacts.id')
+                  ->limit(1);
+            });
 
         // Apply search filter
         if (!empty($this->search)) {
@@ -151,83 +175,89 @@ class Index extends Component
             });
         }
 
-        // Apply label filter (using new Label model)
+        // Apply label filter using EXISTS (faster than whereHas)
         if (!empty($this->labelFilter)) {
-            $query->whereHas('labelRelations', function ($q) {
-                $q->where('labels.id', $this->labelFilter);
+            $query->whereExists(function ($q) {
+                $q->selectRaw('1')
+                  ->from('contact_label')
+                  ->whereColumn('contact_label.contact_id', 'contacts.id')
+                  ->where('contact_label.label_id', $this->labelFilter)
+                  ->limit(1);
             });
         }
 
-        // Apply date filter - filter by last message date
-        if (!empty($this->dateFilter)) {
-            $filterDate = \Carbon\Carbon::parse($this->dateFilter)->startOfDay();
-            $filterDateEnd = \Carbon\Carbon::parse($this->dateFilter)->endOfDay();
-            
-            $query->whereHas('messages', function ($q) use ($filterDate, $filterDateEnd) {
-                $q->whereBetween('sent_at', [$filterDate, $filterDateEnd]);
-            });
-        }
-
-        // Apply quick filter
+        // Apply quick filter with optimized queries
         switch ($this->quickFilter) {
             case 'unread':
-                // Contacts with unread incoming messages
-                $query->whereHas('messages', function ($q) {
-                    $q->where('direction', 'incoming')
-                      ->where('is_read', false);
+                // Use EXISTS instead of whereHas for better performance
+                $query->whereExists(function ($q) {
+                    $q->selectRaw('1')
+                      ->from('messages')
+                      ->whereColumn('messages.contact_id', 'contacts.id')
+                      ->where('messages.direction', 'incoming')
+                      ->where('messages.is_read', false)
+                      ->limit(1);
                 });
                 break;
             case 'mine':
-                // Contacts assigned to current user
                 $query->where('assigned_user_id', auth()->id());
                 break;
             case 'today':
-                // Contacts with messages from today
                 $todayStart = now()->startOfDay();
                 $todayEnd = now()->endOfDay();
-                $query->whereHas('messages', function ($q) use ($todayStart, $todayEnd) {
-                    $q->whereBetween('sent_at', [$todayStart, $todayEnd]);
+                $query->whereExists(function ($q) use ($todayStart, $todayEnd) {
+                    $q->selectRaw('1')
+                      ->from('messages')
+                      ->whereColumn('messages.contact_id', 'contacts.id')
+                      ->whereBetween('messages.sent_at', [$todayStart, $todayEnd])
+                      ->limit(1);
                 });
                 break;
-            // 'all' - no additional filter
         }
 
-        $contacts = $query->with(['assignedUser', 'messages' => function ($q) {
-            $q->orderByDesc('sent_at')->orderByDesc('created_at')->limit(1);
-        }])->get();
-
-        // If date filter is active, only show contacts whose LAST message is on that date
+        // Apply date filter
         if (!empty($this->dateFilter)) {
             $filterDate = \Carbon\Carbon::parse($this->dateFilter)->startOfDay();
             $filterDateEnd = \Carbon\Carbon::parse($this->dateFilter)->endOfDay();
             
-            $contacts = $contacts->filter(function ($contact) use ($filterDate, $filterDateEnd) {
-                $lastMessage = $contact->messages->first();
-                if (!$lastMessage || !$lastMessage->sent_at) {
-                    return false;
-                }
-                return $lastMessage->sent_at->between($filterDate, $filterDateEnd);
+            $query->whereExists(function ($q) use ($filterDate, $filterDateEnd) {
+                $q->selectRaw('1')
+                  ->from('messages')
+                  ->whereColumn('messages.contact_id', 'contacts.id')
+                  ->whereBetween('messages.sent_at', [$filterDate, $filterDateEnd])
+                  ->limit(1);
             });
         }
 
-        // For 'today' quick filter, also filter to show only contacts whose LAST message is today
-        if ($this->quickFilter === 'today') {
-            $todayStart = now()->startOfDay();
-            $todayEnd = now()->endOfDay();
-            
-            $contacts = $contacts->filter(function ($contact) use ($todayStart, $todayEnd) {
-                $lastMessage = $contact->messages->first();
-                if (!$lastMessage || !$lastMessage->sent_at) {
-                    return false;
-                }
-                return $lastMessage->sent_at->between($todayStart, $todayEnd);
+        // Get contacts with last message using a subquery for sorting
+        $contacts = $query
+            ->addSelect(['last_message_at' => Message::selectRaw('MAX(sent_at)')
+                ->whereColumn('contact_id', 'contacts.id')
+            ])
+            ->with(['assignedUser'])
+            ->orderByDesc('last_message_at')
+            ->limit(100) // Limit results for performance
+            ->get();
+
+        // Load last message for each contact efficiently
+        $contactIds = $contacts->pluck('id')->toArray();
+        if (!empty($contactIds)) {
+            $lastMessages = Message::whereIn('contact_id', $contactIds)
+                ->whereIn('id', function ($q) use ($contactIds) {
+                    $q->selectRaw('MAX(id)')
+                      ->from('messages')
+                      ->whereIn('contact_id', $contactIds)
+                      ->groupBy('contact_id');
+                })
+                ->get()
+                ->keyBy('contact_id');
+
+            $contacts->each(function ($contact) use ($lastMessages) {
+                $contact->setRelation('messages', collect([$lastMessages->get($contact->id)])->filter());
             });
         }
 
-        return $contacts->sortByDesc(function ($contact) {
-            $lastMessage = $contact->messages->first();
-            return $lastMessage ? $lastMessage->sent_at : $contact->created_at;
-        })->values();
+        return $contacts;
     }
 
     #[Computed]
@@ -290,7 +320,9 @@ class Index extends Component
     {
         $this->selectedChannelId = $channelId;
         $this->selectedContactId = null;
+        $this->quickFilter = 'all'; // Reset quick filter when changing channel
         $this->resetMessages();
+        unset($this->conversations);
     }
 
     public function selectConversation(int $contactId): void
