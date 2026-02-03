@@ -1,4 +1,7 @@
-<div class="space-y-6" x-data="reportCharts()">
+<div class="space-y-6" 
+     x-data="reportCharts()" 
+     x-init="initCharts()"
+     @charts-updated.window="updateAllCharts($event.detail)">
     <!-- Header with Quick Filters -->
     <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
         <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
@@ -182,7 +185,7 @@
         <!-- Messages Over Time (Large Chart) -->
         <div class="lg:col-span-2 bg-white rounded-xl shadow-sm border border-gray-200 p-6">
             <h3 class="text-lg font-semibold text-gray-800 mb-4">Mensajes por {{ $groupBy === 'day' ? 'Día' : ($groupBy === 'week' ? 'Semana' : 'Mes') }}</h3>
-            <div class="h-80">
+            <div class="h-80" wire:ignore>
                 <canvas id="messagesOverTimeChart"></canvas>
             </div>
         </div>
@@ -213,7 +216,7 @@
         <!-- Messages by Hour -->
         <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
             <h3 class="text-lg font-semibold text-gray-800 mb-4">Actividad por Hora</h3>
-            <div class="h-64">
+            <div class="h-64" wire:ignore>
                 <canvas id="messagesByHourChart"></canvas>
             </div>
         </div>
@@ -221,7 +224,7 @@
         <!-- Messages by Day of Week -->
         <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
             <h3 class="text-lg font-semibold text-gray-800 mb-4">Actividad por Día</h3>
-            <div class="h-64">
+            <div class="h-64" wire:ignore>
                 <canvas id="messagesByDayChart"></canvas>
             </div>
         </div>
@@ -229,7 +232,7 @@
         <!-- Messages by Type (Pie) -->
         <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
             <h3 class="text-lg font-semibold text-gray-800 mb-4">Tipos de Mensaje</h3>
-            <div class="h-64">
+            <div class="h-64" wire:ignore>
                 <canvas id="messagesByTypeChart"></canvas>
             </div>
         </div>
@@ -240,7 +243,7 @@
         <!-- Messages by Channel -->
         <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
             <h3 class="text-lg font-semibold text-gray-800 mb-4">Mensajes por Canal</h3>
-            <div class="h-64">
+            <div class="h-64" wire:ignore>
                 <canvas id="messagesByChannelChart"></canvas>
             </div>
         </div>
@@ -294,247 +297,236 @@
 
 @script
 <script>
-    Alpine.data('reportCharts', () => ({
-        charts: {},
-        
-        init() {
-            this.loadCharts();
+    function reportCharts() {
+        return {
+            charts: {},
             
-            // Re-render charts when Livewire updates
-            Livewire.hook('morph.updated', () => {
-                this.$nextTick(() => this.loadCharts());
-            });
-        },
-        
-        loadCharts() {
-            this.renderMessagesOverTime();
-            this.renderMessagesByHour();
-            this.renderMessagesByDay();
-            this.renderMessagesByType();
-            this.renderMessagesByChannel();
-        },
-        
-        destroyChart(id) {
-            if (this.charts[id]) {
-                this.charts[id].destroy();
-                delete this.charts[id];
+            initCharts() {
+                // Initial load
+                setTimeout(() => {
+                    this.loadAllCharts();
+                }, 200);
+            },
+            
+            updateAllCharts(data) {
+                if (data) {
+                    this.loadAllCharts(data);
+                }
+            },
+            
+            loadAllCharts(data = null) {
+                // Get data from PHP if not provided
+                const chartData = data || {
+                    messagesByDate: @json($this->messagesByDate),
+                    messagesByHour: @json($this->messagesByHour),
+                    messagesByDayOfWeek: @json($this->messagesByDayOfWeek),
+                    messagesByType: @json($this->messagesByType),
+                    messagesByChannel: @json($this->messagesByChannel)
+                };
+                
+                this.renderMessagesOverTime(chartData.messagesByDate);
+                this.renderMessagesByHour(chartData.messagesByHour);
+                this.renderMessagesByDay(chartData.messagesByDayOfWeek);
+                this.renderMessagesByType(chartData.messagesByType);
+                this.renderMessagesByChannel(chartData.messagesByChannel);
+            },
+            
+            destroyChart(id) {
+                if (this.charts[id]) {
+                    this.charts[id].destroy();
+                    delete this.charts[id];
+                }
+            },
+            
+            renderMessagesOverTime(data) {
+                const ctx = document.getElementById('messagesOverTimeChart');
+                if (!ctx || !data) return;
+                
+                this.destroyChart('messagesOverTime');
+                
+                this.charts.messagesOverTime = new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: data.labels || [],
+                        datasets: [{
+                            label: 'Mensajes',
+                            data: data.data || [],
+                            backgroundColor: 'rgba(249, 115, 22, 0.8)',
+                            borderColor: 'rgb(249, 115, 22)',
+                            borderWidth: 1,
+                            borderRadius: 4,
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { legend: { display: false } },
+                        scales: {
+                            y: { beginAtZero: true, grid: { color: 'rgba(0,0,0,0.05)' } },
+                            x: { grid: { display: false } }
+                        }
+                    }
+                });
+            },
+            
+            renderMessagesByHour(data) {
+                const ctx = document.getElementById('messagesByHourChart');
+                if (!ctx || !data) return;
+                
+                this.destroyChart('messagesByHour');
+                
+                this.charts.messagesByHour = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: data.labels || [],
+                        datasets: [{
+                            label: 'Mensajes',
+                            data: data.data || [],
+                            borderColor: 'rgb(236, 72, 153)',
+                            backgroundColor: 'rgba(236, 72, 153, 0.1)',
+                            fill: true,
+                            tension: 0.4,
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { legend: { display: false } },
+                        scales: {
+                            y: { beginAtZero: true, grid: { color: 'rgba(0,0,0,0.05)' } },
+                            x: { grid: { display: false } }
+                        }
+                    }
+                });
+            },
+            
+            renderMessagesByDay(data) {
+                const ctx = document.getElementById('messagesByDayChart');
+                if (!ctx || !data) return;
+                
+                this.destroyChart('messagesByDay');
+                
+                this.charts.messagesByDay = new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: data.labels || [],
+                        datasets: [{
+                            label: 'Mensajes',
+                            data: data.data || [],
+                            backgroundColor: [
+                                'rgba(239, 68, 68, 0.8)',
+                                'rgba(249, 115, 22, 0.8)',
+                                'rgba(234, 179, 8, 0.8)',
+                                'rgba(34, 197, 94, 0.8)',
+                                'rgba(6, 182, 212, 0.8)',
+                                'rgba(99, 102, 241, 0.8)',
+                                'rgba(168, 85, 247, 0.8)',
+                            ],
+                            borderRadius: 4,
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { legend: { display: false } },
+                        scales: {
+                            y: { beginAtZero: true, grid: { color: 'rgba(0,0,0,0.05)' } },
+                            x: { grid: { display: false } }
+                        }
+                    }
+                });
+            },
+            
+            renderMessagesByType(data) {
+                const ctx = document.getElementById('messagesByTypeChart');
+                if (!ctx || !data) return;
+                
+                this.destroyChart('messagesByType');
+                
+                const colors = [
+                    'rgba(249, 115, 22, 0.8)',
+                    'rgba(236, 72, 153, 0.8)',
+                    'rgba(139, 92, 246, 0.8)',
+                    'rgba(6, 182, 212, 0.8)',
+                    'rgba(16, 185, 129, 0.8)',
+                    'rgba(245, 158, 11, 0.8)',
+                    'rgba(239, 68, 68, 0.8)',
+                    'rgba(99, 102, 241, 0.8)',
+                ];
+                
+                this.charts.messagesByType = new Chart(ctx, {
+                    type: 'doughnut',
+                    data: {
+                        labels: data.map(d => d.type),
+                        datasets: [{
+                            data: data.map(d => d.total),
+                            backgroundColor: colors.slice(0, data.length),
+                            borderWidth: 2,
+                            borderColor: '#fff',
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: {
+                                position: 'right',
+                                labels: { boxWidth: 12, padding: 8, font: { size: 11 } }
+                            }
+                        }
+                    }
+                });
+            },
+            
+            renderMessagesByChannel(data) {
+                const ctx = document.getElementById('messagesByChannelChart');
+                if (!ctx || !data) return;
+                
+                this.destroyChart('messagesByChannel');
+                
+                const colors = [
+                    'rgba(34, 197, 94, 0.8)',
+                    'rgba(6, 182, 212, 0.8)',
+                    'rgba(99, 102, 241, 0.8)',
+                    'rgba(249, 115, 22, 0.8)',
+                    'rgba(236, 72, 153, 0.8)',
+                ];
+                
+                this.charts.messagesByChannel = new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: data.map(d => d.name),
+                        datasets: [{
+                            label: 'Mensajes',
+                            data: data.map(d => d.total),
+                            backgroundColor: colors.slice(0, data.length),
+                            borderRadius: 4,
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        indexAxis: 'y',
+                        plugins: { legend: { display: false } },
+                        scales: {
+                            x: { beginAtZero: true, grid: { color: 'rgba(0,0,0,0.05)' } },
+                            y: { grid: { display: false } }
+                        }
+                    }
+                });
             }
-        },
-        
-        renderMessagesOverTime() {
-            const ctx = document.getElementById('messagesOverTimeChart');
-            if (!ctx) return;
-            
-            this.destroyChart('messagesOverTime');
-            
-            const data = @json($this->messagesByDate);
-            
-            this.charts.messagesOverTime = new Chart(ctx, {
-                type: 'bar',
-                data: {
-                    labels: data.labels,
-                    datasets: [{
-                        label: 'Mensajes',
-                        data: data.data,
-                        backgroundColor: 'rgba(249, 115, 22, 0.8)',
-                        borderColor: 'rgb(249, 115, 22)',
-                        borderWidth: 1,
-                        borderRadius: 4,
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: { display: false }
-                    },
-                    scales: {
-                        y: {
-                            beginAtZero: true,
-                            grid: { color: 'rgba(0,0,0,0.05)' }
-                        },
-                        x: {
-                            grid: { display: false }
-                        }
-                    }
-                }
-            });
-        },
-        
-        renderMessagesByHour() {
-            const ctx = document.getElementById('messagesByHourChart');
-            if (!ctx) return;
-            
-            this.destroyChart('messagesByHour');
-            
-            const data = @json($this->messagesByHour);
-            
-            this.charts.messagesByHour = new Chart(ctx, {
-                type: 'line',
-                data: {
-                    labels: data.labels,
-                    datasets: [{
-                        label: 'Mensajes',
-                        data: data.data,
-                        borderColor: 'rgb(236, 72, 153)',
-                        backgroundColor: 'rgba(236, 72, 153, 0.1)',
-                        fill: true,
-                        tension: 0.4,
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: { display: false }
-                    },
-                    scales: {
-                        y: {
-                            beginAtZero: true,
-                            grid: { color: 'rgba(0,0,0,0.05)' }
-                        },
-                        x: {
-                            grid: { display: false }
-                        }
-                    }
-                }
-            });
-        },
-        
-        renderMessagesByDay() {
-            const ctx = document.getElementById('messagesByDayChart');
-            if (!ctx) return;
-            
-            this.destroyChart('messagesByDay');
-            
-            const data = @json($this->messagesByDayOfWeek);
-            
-            this.charts.messagesByDay = new Chart(ctx, {
-                type: 'bar',
-                data: {
-                    labels: data.labels,
-                    datasets: [{
-                        label: 'Mensajes',
-                        data: data.data,
-                        backgroundColor: [
-                            'rgba(239, 68, 68, 0.8)',
-                            'rgba(249, 115, 22, 0.8)',
-                            'rgba(234, 179, 8, 0.8)',
-                            'rgba(34, 197, 94, 0.8)',
-                            'rgba(6, 182, 212, 0.8)',
-                            'rgba(99, 102, 241, 0.8)',
-                            'rgba(168, 85, 247, 0.8)',
-                        ],
-                        borderRadius: 4,
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: { display: false }
-                    },
-                    scales: {
-                        y: {
-                            beginAtZero: true,
-                            grid: { color: 'rgba(0,0,0,0.05)' }
-                        },
-                        x: {
-                            grid: { display: false }
-                        }
-                    }
-                }
-            });
-        },
-        
-        renderMessagesByType() {
-            const ctx = document.getElementById('messagesByTypeChart');
-            if (!ctx) return;
-            
-            this.destroyChart('messagesByType');
-            
-            const data = @json($this->messagesByType);
-            const colors = [
-                'rgba(249, 115, 22, 0.8)',
-                'rgba(236, 72, 153, 0.8)',
-                'rgba(139, 92, 246, 0.8)',
-                'rgba(6, 182, 212, 0.8)',
-                'rgba(16, 185, 129, 0.8)',
-                'rgba(245, 158, 11, 0.8)',
-                'rgba(239, 68, 68, 0.8)',
-                'rgba(99, 102, 241, 0.8)',
-            ];
-            
-            this.charts.messagesByType = new Chart(ctx, {
-                type: 'doughnut',
-                data: {
-                    labels: data.map(d => d.type),
-                    datasets: [{
-                        data: data.map(d => d.total),
-                        backgroundColor: colors.slice(0, data.length),
-                        borderWidth: 2,
-                        borderColor: '#fff',
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: {
-                            position: 'right',
-                            labels: { boxWidth: 12, padding: 8, font: { size: 11 } }
-                        }
-                    }
-                }
-            });
-        },
-        
-        renderMessagesByChannel() {
-            const ctx = document.getElementById('messagesByChannelChart');
-            if (!ctx) return;
-            
-            this.destroyChart('messagesByChannel');
-            
-            const data = @json($this->messagesByChannel);
-            const colors = [
-                'rgba(34, 197, 94, 0.8)',
-                'rgba(6, 182, 212, 0.8)',
-                'rgba(99, 102, 241, 0.8)',
-                'rgba(249, 115, 22, 0.8)',
-                'rgba(236, 72, 153, 0.8)',
-            ];
-            
-            this.charts.messagesByChannel = new Chart(ctx, {
-                type: 'bar',
-                data: {
-                    labels: data.map(d => d.name),
-                    datasets: [{
-                        label: 'Mensajes',
-                        data: data.map(d => d.total),
-                        backgroundColor: colors.slice(0, data.length),
-                        borderRadius: 4,
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    indexAxis: 'y',
-                    plugins: {
-                        legend: { display: false }
-                    },
-                    scales: {
-                        x: {
-                            beginAtZero: true,
-                            grid: { color: 'rgba(0,0,0,0.05)' }
-                        },
-                        y: {
-                            grid: { display: false }
-                        }
-                    }
-                }
-            });
-        }
-    }));
+        };
+    }
+    
+    // Re-render charts after Livewire updates
+    document.addEventListener('livewire:navigated', () => {
+        setTimeout(() => {
+            const el = document.querySelector('[x-data]');
+            if (el && el.__x) {
+                el.__x.$data.loadAllCharts();
+            }
+        }, 300);
+    });
 </script>
 @endscript
 </div>

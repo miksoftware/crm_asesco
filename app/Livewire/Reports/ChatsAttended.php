@@ -303,6 +303,8 @@ class ChatsAttended extends Component
         $this->channelId = null;
         $this->groupBy = 'day';
         $this->messageDirection = 'all';
+        
+        $this->dispatchChartsUpdate();
     }
 
     public function setQuickDate(string $period): void
@@ -322,6 +324,41 @@ class ChatsAttended extends Component
         if ($period === 'yesterday') {
             $this->dateTo = now()->subDay()->format('Y-m-d');
         }
+        
+        $this->dispatchChartsUpdate();
+    }
+
+    public function updated($property): void
+    {
+        // Dispatch chart update when any filter changes
+        if (in_array($property, ['dateFrom', 'dateTo', 'userId', 'channelId', 'groupBy', 'messageDirection'])) {
+            $this->dispatchChartsUpdate();
+        }
+    }
+
+    private function dispatchChartsUpdate(): void
+    {
+        // Clear computed caches
+        unset($this->messagesByDate);
+        unset($this->messagesByHour);
+        unset($this->messagesByDayOfWeek);
+        unset($this->messagesByType);
+        unset($this->messagesByChannel);
+        unset($this->totalMessages);
+        unset($this->totalConversations);
+        unset($this->totalIncoming);
+        unset($this->totalOutgoing);
+        unset($this->avgMessagesPerDay);
+        unset($this->messagesByUser);
+        unset($this->topContacts);
+        
+        $this->dispatch('charts-updated', [
+            'messagesByDate' => $this->messagesByDate,
+            'messagesByHour' => $this->messagesByHour,
+            'messagesByDayOfWeek' => $this->messagesByDayOfWeek,
+            'messagesByType' => $this->messagesByType,
+            'messagesByChannel' => $this->messagesByChannel,
+        ]);
     }
 
     public function render()
