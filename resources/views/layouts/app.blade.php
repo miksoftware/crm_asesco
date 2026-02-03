@@ -8,6 +8,7 @@
     <link rel="preconnect" href="https://fonts.bunny.net">
     <link href="https://fonts.bunny.net/css?family=inter:400,500,600,700&display=swap" rel="stylesheet" />
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
     @vite(['resources/css/app.css', 'resources/js/app.js'])
     @livewireStyles
 </head>
@@ -41,6 +42,7 @@
             'settings.roles.create' => ['title' => 'Crear Rol', 'parent' => 'settings.roles.index', 'section' => 'Configuración'],
             'settings.roles.edit' => ['title' => 'Editar Rol', 'parent' => 'settings.roles.index', 'section' => 'Configuración'],
             'settings.labels.index' => ['title' => 'Etiquetas', 'parent' => null, 'section' => 'Configuración'],
+            'reports.chats-attended' => ['title' => 'Chats Atendidos', 'parent' => null, 'section' => 'Reportes'],
             'help.technical-manual' => ['title' => 'Manual Técnico', 'parent' => null, 'section' => 'Ayuda'],
         ];
         
@@ -145,15 +147,56 @@
                 @endif
 
                 @if($isAdmin || ($user && $user->hasPermission('reportes.ver')))
-                <a href="#" 
-                   class="flex items-center px-3 py-3 rounded-lg text-gray-300 hover:bg-gray-700/50 hover:text-white transition-all group"
-                   :class="sidebarOpen ? 'space-x-3' : 'justify-center'"
-                   :title="!sidebarOpen ? 'Reportes' : ''">
-                    <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
-                    </svg>
-                    <span x-show="sidebarOpen" x-cloak>Reportes</span>
-                </a>
+                <div x-data="{ open: {{ str_starts_with($currentRoute, 'reports.') ? 'true' : 'false' }} }">
+                    <!-- Expanded mode -->
+                    <template x-if="sidebarOpen">
+                        <div>
+                            <button @click="open = !open" class="w-full flex items-center justify-between px-3 py-3 rounded-lg {{ str_starts_with($currentRoute, 'reports.') ? 'bg-gray-700/50 text-white' : 'text-gray-300 hover:bg-gray-700/50 hover:text-white' }} transition-all">
+                                <div class="flex items-center space-x-3">
+                                    <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+                                    </svg>
+                                    <span>Reportes</span>
+                                </div>
+                                <svg class="w-4 h-4 transition-transform" :class="{ 'rotate-180': open }" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                                </svg>
+                            </button>
+                            <div x-show="open" x-collapse class="mt-1 ml-4 space-y-1">
+                                <a href="{{ route('reports.chats-attended') }}" class="flex items-center space-x-3 px-3 py-2.5 rounded-lg {{ $currentRoute === 'reports.chats-attended' ? 'bg-gradient-to-r from-primary-500/20 to-secondary-500/20 text-white border-l-4 border-primary-500' : 'text-gray-400 hover:bg-gray-700/50 hover:text-white' }} transition-all">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
+                                    </svg>
+                                    <span>Chats Atendidos</span>
+                                </a>
+                            </div>
+                        </div>
+                    </template>
+
+                    <!-- Collapsed mode - popover -->
+                    <template x-if="!sidebarOpen">
+                        <div class="relative" x-data="{ showPopover: false }">
+                            <button @click="showPopover = !showPopover" 
+                                    @click.away="showPopover = false"
+                                    class="w-full flex items-center justify-center px-3 py-3 rounded-lg {{ str_starts_with($currentRoute, 'reports.') ? 'bg-gray-700/50 text-white' : 'text-gray-300 hover:bg-gray-700/50 hover:text-white' }} transition-all"
+                                    title="Reportes">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+                                </svg>
+                            </button>
+                            <div x-show="showPopover" x-cloak
+                                 class="absolute left-full top-0 ml-2 w-48 bg-gray-800 rounded-lg shadow-xl py-2 z-50">
+                                <div class="px-3 py-2 text-xs font-semibold text-gray-400 uppercase">Reportes</div>
+                                <a href="{{ route('reports.chats-attended') }}" class="flex items-center space-x-2 px-3 py-2 text-gray-300 hover:bg-gray-700 hover:text-white">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
+                                    </svg>
+                                    <span>Chats Atendidos</span>
+                                </a>
+                            </div>
+                        </div>
+                    </template>
+                </div>
                 @endif
 
                 <!-- Configuración con submenú -->
@@ -327,6 +370,68 @@
     </div>
 
     @livewireScripts
+    
+    <!-- Browser Push Notifications -->
+    <script>
+        // Request notification permission on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            if ('Notification' in window) {
+                if (Notification.permission === 'default') {
+                    // Show a subtle prompt to enable notifications
+                    setTimeout(() => {
+                        Notification.requestPermission().then(permission => {
+                            if (permission === 'granted') {
+                                console.log('Notificaciones habilitadas');
+                            }
+                        });
+                    }, 3000);
+                }
+            }
+        });
+
+        // Function to show browser notification
+        function showBrowserNotification(title, body, channelId, contactId) {
+            if (!('Notification' in window)) {
+                console.log('Este navegador no soporta notificaciones');
+                return;
+            }
+
+            if (Notification.permission === 'granted') {
+                const notification = new Notification(title, {
+                    body: body,
+                    icon: '{{ asset("images/logo_asesco.png") }}',
+                    badge: '{{ asset("images/logo_asesco.png") }}',
+                    tag: `chat-${channelId}-${contactId}`,
+                    renotify: true,
+                    requireInteraction: false,
+                    silent: false
+                });
+
+                notification.onclick = function(event) {
+                    event.preventDefault();
+                    window.focus();
+                    // Navigate to the chat
+                    window.location.href = `{{ route('chat.index') }}?selectedChannelId=${channelId}&selectedContactId=${contactId}`;
+                    notification.close();
+                };
+
+                // Auto close after 5 seconds
+                setTimeout(() => notification.close(), 5000);
+            } else if (Notification.permission !== 'denied') {
+                Notification.requestPermission().then(permission => {
+                    if (permission === 'granted') {
+                        showBrowserNotification(title, body, channelId, contactId);
+                    }
+                });
+            }
+        }
+
+        // Listen for new message events from Livewire
+        window.addEventListener('browser-notification', event => {
+            const { title, body, channelId, contactId } = event.detail;
+            showBrowserNotification(title, body, channelId, contactId);
+        });
+    </script>
     
     <!-- Toast Notifications -->
     <script>

@@ -19,6 +19,14 @@ use Livewire\Attributes\On;
 class NotificationBadge extends Component
 {
     public bool $showDropdown = false;
+    
+    // Track last known unread count to detect new messages
+    public int $lastKnownCount = 0;
+
+    public function mount(): void
+    {
+        $this->lastKnownCount = $this->unreadCount;
+    }
 
     #[Computed]
     public function unreadCount(): int
@@ -54,6 +62,46 @@ class NotificationBadge extends Component
 
         $notificationService = app(NotificationService::class);
         return $notificationService->getUserNotifications($user->id, 20);
+    }
+
+    /**
+     * Check for new notifications and trigger browser notification.
+     * Called by polling from the view.
+     */
+    public function checkNewNotifications(): void
+    {
+        // Clear computed cache to get fresh count
+        unset($this->unreadCount);
+        unset($this->notifications);
+        unset($this->notificationsGrouped);
+        
+        $currentCount = $this->unreadCount;
+        
+        // If count increased, we have new messages
+        if ($currentCount > $this->lastKnownCount) {
+            // Get the latest unread notification to show in browser
+            $latestNotification = \App\Models\ChatNotification::where('user_id', auth()->id())
+                ->where('is_read', false)
+                ->with(['contact', 'channel'])
+                ->orderByDesc('created_at')
+                ->first();
+            
+            if ($latestNotification) {
+                $contactName = $latestNotification->contact?->display_name ?? 'Contacto';
+                $channelName = $latestNotification->channel?->name ?? 'Canal';
+                $messagePreview = $latestNotification->body ?? 'Nuevo mensaje';
+                
+                // Dispatch browser notification event
+                $this->dispatch('browser-notification', 
+                    title: "{$contactName} - {$channelName}",
+                    body: $messagePreview,
+                    channelId: $latestNotification->channel_id,
+                    contactId: $latestNotification->contact_id
+                );
+            }
+        }
+        
+        $this->lastKnownCount = $currentCount;
     }
 
     public function toggleDropdown(): void
@@ -130,6 +178,8 @@ class NotificationBadge extends Component
         unset($this->unreadCount);
         unset($this->notificationsGrouped);
         unset($this->notifications);
+        
+        $this->lastKnownCount = 0;
 
         $this->dispatch('toast', type: 'success', message: 'Todas las notificaciones marcadas como leídas');
     }
@@ -156,6 +206,7 @@ class NotificationBadge extends Component
         unset($this->unreadCount);
         unset($this->notificationsGrouped);
         unset($this->notifications);
+        $this->lastKnownCount = $this->unreadCount;
     }
 
     public function render()

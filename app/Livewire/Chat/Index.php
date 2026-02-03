@@ -43,6 +43,9 @@ class Index extends Component
     #[Url(history: true)]
     public ?string $dateFilter = null;
 
+    #[Url(history: true)]
+    public string $quickFilter = 'all';
+
     public string $messageText = '';
 
     public int $messagesLimit = 50;
@@ -117,6 +120,17 @@ class Index extends Component
             ->get();
     }
 
+    /**
+     * Get unread message count for a specific channel.
+     */
+    public function getChannelUnreadCount(int $channelId): int
+    {
+        return Message::where('channel_id', $channelId)
+            ->where('direction', 'incoming')
+            ->where('is_read', false)
+            ->count();
+    }
+
     #[Computed]
     public function conversations(): Collection
     {
@@ -154,6 +168,30 @@ class Index extends Component
             });
         }
 
+        // Apply quick filter
+        switch ($this->quickFilter) {
+            case 'unread':
+                // Contacts with unread incoming messages
+                $query->whereHas('messages', function ($q) {
+                    $q->where('direction', 'incoming')
+                      ->where('is_read', false);
+                });
+                break;
+            case 'mine':
+                // Contacts assigned to current user
+                $query->where('assigned_user_id', auth()->id());
+                break;
+            case 'today':
+                // Contacts with messages from today
+                $todayStart = now()->startOfDay();
+                $todayEnd = now()->endOfDay();
+                $query->whereHas('messages', function ($q) use ($todayStart, $todayEnd) {
+                    $q->whereBetween('sent_at', [$todayStart, $todayEnd]);
+                });
+                break;
+            // 'all' - no additional filter
+        }
+
         $contacts = $query->with(['assignedUser', 'messages' => function ($q) {
             $q->orderByDesc('sent_at')->orderByDesc('created_at')->limit(1);
         }])->get();
@@ -169,6 +207,20 @@ class Index extends Component
                     return false;
                 }
                 return $lastMessage->sent_at->between($filterDate, $filterDateEnd);
+            });
+        }
+
+        // For 'today' quick filter, also filter to show only contacts whose LAST message is today
+        if ($this->quickFilter === 'today') {
+            $todayStart = now()->startOfDay();
+            $todayEnd = now()->endOfDay();
+            
+            $contacts = $contacts->filter(function ($contact) use ($todayStart, $todayEnd) {
+                $lastMessage = $contact->messages->first();
+                if (!$lastMessage || !$lastMessage->sent_at) {
+                    return false;
+                }
+                return $lastMessage->sent_at->between($todayStart, $todayEnd);
             });
         }
 
@@ -396,6 +448,82 @@ class Index extends Component
         $this->mediaFile = null;
         $this->mediaPreview = null;
         $this->mediaType = null;
+    }
+
+    /**
+     * Send a pasted/dropped image (base64)
+     */
+    public function sendPastedImage(string $base64Image, ?string $caption = null): void
+    {
+        if (!$this->canSend) {
+            $this->dispatch('toast', type: 'error', message: 'No tienes permiso para enviar mensajes');
+            return;
+        }
+
+        if ($this->selectedContactId === null || $this->selectedChannelId === null) {
+            $this->dispatch('toast', type: 'error', message: 'Selecciona una conversación primero');
+            return;
+        }
+
+        $contact = Contact::find($this->selectedContactId);
+        if (!$contact) {
+            $this->dispatch('toast', type: 'error', message: 'Contacto no encontrado');
+            return;
+        }
+
+        $channel = Channel::find($this->selectedChannelId);
+        if (!$channel) {
+            $this->dispatch('toast', type: 'error', message: 'Canal no encontrado');
+            return;
+        }
+
+        $evolutionApi = app(EvolutionApiService::class);
+        $recipient = $contact->remote_jid ?? $contact->phone_number;
+        $caption = trim($caption ?? '');
+
+        try {
+            $response = $evolutionApi->sendImageMessage(
+                $channel->instance_name, 
+                $recipient, 
+                $base64Image, 
+                $caption ?: null, 
+                'image/png'
+            );
+
+            if ($response && $response['success']) {
+                // Decode and save to storage
+                $imageData = base64_decode($base64Image);
+                $fileName = 'pasted_' . uniqid() . '.png';
+                $path = 'chat-media/' . date('Y/m') . '/' . $fileName;
+                Storage::disk('public')->put($path, $imageData);
+                $mediaUrl = Storage::disk('public')->url($path);
+
+                // Create message record
+                Message::create([
+                    'contact_id' => $contact->id,
+                    'channel_id' => $this->selectedChannelId,
+                    'user_id' => auth()->id(),
+                    'message_id' => $response['data']['key']['id'] ?? null,
+                    'direction' => 'outgoing',
+                    'type' => 'image',
+                    'content' => $caption ?: 'Imagen',
+                    'media_url' => $mediaUrl,
+                    'media_mime_type' => 'image/png',
+                    'status' => 'sent',
+                    'is_read' => true,
+                    'sent_at' => now(),
+                ]);
+
+                $this->messageText = '';
+                $this->dispatch('toast', type: 'success', message: 'Imagen enviada');
+                unset($this->messages);
+            } else {
+                $this->dispatch('toast', type: 'error', message: 'Error al enviar la imagen');
+            }
+        } catch (\Exception $e) {
+            Log::error('Error sending pasted image', ['error' => $e->getMessage()]);
+            $this->dispatch('toast', type: 'error', message: 'Error: ' . $e->getMessage());
+        }
     }
 
     /**
@@ -814,7 +942,9 @@ class Index extends Component
         $notificationService = app(NotificationService::class);
         $notificationService->markConversationAsRead(auth()->id(), $contactId, $this->selectedChannelId);
 
-        $this->dispatch('notifications-updated');
+        // Dispatch to notification components to update the count
+        $this->dispatch('notifications-updated')->to(NotificationBadge::class);
+        $this->dispatch('notifications-updated')->to(SidebarBadge::class);
         unset($this->conversations);
     }
 
@@ -878,6 +1008,14 @@ class Index extends Component
     {
         $this->selectedContactId = null;
         $this->resetMessages();
+    }
+
+    public function setQuickFilter(string $filter): void
+    {
+        $this->quickFilter = $filter;
+        $this->selectedContactId = null;
+        $this->resetMessages();
+        unset($this->conversations);
     }
 
     private function resetMessages(): void

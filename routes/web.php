@@ -18,6 +18,7 @@ use App\Livewire\Help\TechnicalManual;
 use App\Livewire\Campaigns\Index as CampaignsIndex;
 use App\Livewire\Campaigns\Create as CampaignsCreate;
 use App\Livewire\Campaigns\Results as CampaignsResults;
+use App\Livewire\Reports\ChatsAttended as ReportsChatsAttended;
 
 // Guest routes
 Route::middleware('guest')->group(function () {
@@ -41,6 +42,9 @@ Route::middleware('auth')->group(function () {
     Route::get('/campanas', CampaignsIndex::class)->name('campaigns.index')->middleware('permission:campanas.ver');
     Route::get('/campanas/crear', CampaignsCreate::class)->name('campaigns.create')->middleware('permission:campanas.crear');
     Route::get('/campanas/{campaign}/resultados', CampaignsResults::class)->name('campaigns.results')->middleware('permission:campanas.ver');
+
+    // Reports
+    Route::get('/reportes/chats-atendidos', ReportsChatsAttended::class)->name('reports.chats-attended')->middleware('permission:reportes.ver');
 
     // Settings - Users
     Route::get('/configuracion/usuarios', UsersIndex::class)->name('settings.users.index')->middleware('permission:usuarios.ver');

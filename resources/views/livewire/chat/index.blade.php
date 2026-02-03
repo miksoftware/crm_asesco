@@ -14,6 +14,7 @@
         <div class="bg-white border-b-2 border-gray-300 flex-shrink-0">
             <div class="flex">
                 @foreach($this->channels as $channel)
+                    @php $channelUnread = $this->getChannelUnreadCount($channel->id); @endphp
                     <button wire:click="selectChannel({{ $channel->id }})"
                             wire:key="channel-tab-{{ $channel->id }}"
                             class="flex-1 px-4 py-3 text-sm font-medium border-b-2 -mb-[2px] transition-colors whitespace-nowrap
@@ -23,6 +24,11 @@
                         <span class="flex items-center justify-center gap-2">
                             <span class="w-2 h-2 rounded-full bg-green-500"></span>
                             {{ $channel->name }}
+                            @if($channelUnread > 0)
+                                <span class="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 text-xs font-bold text-white bg-green-500 rounded-full">
+                                    {{ $channelUnread > 99 ? '99+' : $channelUnread }}
+                                </span>
+                            @endif
                         </span>
                     </button>
                 @endforeach
@@ -45,6 +51,30 @@
                                placeholder="Buscar contacto...">
                     </div>
 
+                    <!-- Quick Filter Pills -->
+                    <div class="flex items-center gap-1.5 overflow-x-auto pb-1">
+                        <button wire:click="setQuickFilter('all')"
+                                class="px-3 py-1.5 text-xs font-medium rounded-full whitespace-nowrap transition-colors
+                                       {{ $quickFilter === 'all' ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200' }}">
+                            Todos
+                        </button>
+                        <button wire:click="setQuickFilter('unread')"
+                                class="px-3 py-1.5 text-xs font-medium rounded-full whitespace-nowrap transition-colors
+                                       {{ $quickFilter === 'unread' ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200' }}">
+                            No leídos
+                        </button>
+                        <button wire:click="setQuickFilter('mine')"
+                                class="px-3 py-1.5 text-xs font-medium rounded-full whitespace-nowrap transition-colors
+                                       {{ $quickFilter === 'mine' ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200' }}">
+                            Míos
+                        </button>
+                        <button wire:click="setQuickFilter('today')"
+                                class="px-3 py-1.5 text-xs font-medium rounded-full whitespace-nowrap transition-colors
+                                       {{ $quickFilter === 'today' ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200' }}">
+                            Hoy
+                        </button>
+                    </div>
+
                     <!-- Label Filter & Sync Button -->
                     <div class="flex items-center gap-2">
                         <select wire:model.live="labelFilter" 
@@ -56,23 +86,6 @@
                         </select>
                         @if($labelFilter)
                             <button wire:click="clearLabelFilter" class="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg" title="Limpiar filtro">
-                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-                                </svg>
-                            </button>
-                        @endif
-                    </div>
-
-                    <!-- Date Filter -->
-                    <div class="flex items-center gap-2">
-                        <div class="relative flex-1">
-                            <input type="date" 
-                                   wire:model.live="dateFilter"
-                                   class="w-full px-2 py-1.5 border border-gray-300 rounded-lg text-xs focus:ring-2 focus:ring-green-500"
-                                   title="Filtrar por fecha de último mensaje">
-                        </div>
-                        @if($dateFilter)
-                            <button wire:click="clearDateFilter" class="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg" title="Limpiar filtro de fecha">
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
                                 </svg>
@@ -520,19 +533,130 @@
                                         </div>
 
                                         <!-- Text Input -->
-                                        <form wire:submit="sendMessage" class="flex-1 flex items-end gap-2">
+                                        <form wire:submit="sendMessage" class="flex-1 flex items-end gap-2"
+                                              x-data="{ 
+                                                  sending: false,
+                                                  pastedImage: null,
+                                                  pastedImagePreview: null,
+                                                  isDragging: false,
+                                                  handlePaste(e) {
+                                                      const items = e.clipboardData?.items;
+                                                      if (!items) return;
+                                                      for (let item of items) {
+                                                          if (item.type.startsWith('image/')) {
+                                                              e.preventDefault();
+                                                              const file = item.getAsFile();
+                                                              this.processImage(file);
+                                                              break;
+                                                          }
+                                                      }
+                                                  },
+                                                  handleDrop(e) {
+                                                      this.isDragging = false;
+                                                      const files = e.dataTransfer?.files;
+                                                      if (!files || files.length === 0) return;
+                                                      const file = files[0];
+                                                      if (file.type.startsWith('image/')) {
+                                                          this.processImage(file);
+                                                      }
+                                                  },
+                                                  processImage(file) {
+                                                      const reader = new FileReader();
+                                                      reader.onload = (e) => {
+                                                          this.pastedImagePreview = e.target.result;
+                                                          this.pastedImage = e.target.result.split(',')[1];
+                                                      };
+                                                      reader.readAsDataURL(file);
+                                                  },
+                                                  clearPastedImage() {
+                                                      this.pastedImage = null;
+                                                      this.pastedImagePreview = null;
+                                                  },
+                                                  async sendWithImage() {
+                                                      if (this.sending) return;
+                                                      this.sending = true;
+                                                      try {
+                                                          await $wire.sendPastedImage(this.pastedImage, $wire.messageText || '');
+                                                          this.clearPastedImage();
+                                                      } finally {
+                                                          this.sending = false;
+                                                      }
+                                                  }
+                                              }"
+                                              @paste="handlePaste($event)"
+                                              @dragover.prevent="isDragging = true"
+                                              @dragleave.prevent="isDragging = false"
+                                              @drop.prevent="handleDrop($event)">
+                                            
+                                            <!-- Pasted Image Preview -->
+                                            <template x-if="pastedImagePreview">
+                                                <div class="absolute bottom-full left-0 right-0 mb-2 p-3 bg-white rounded-xl shadow-lg border border-gray-200">
+                                                    <div class="flex items-start gap-3">
+                                                        <div class="relative">
+                                                            <img :src="pastedImagePreview" class="max-h-32 rounded-lg object-contain" alt="Preview">
+                                                            <button type="button" @click="clearPastedImage()" 
+                                                                    class="absolute -top-2 -right-2 p-1 bg-red-500 text-white rounded-full hover:bg-red-600">
+                                                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                                                                </svg>
+                                                            </button>
+                                                        </div>
+                                                        <div class="flex-1">
+                                                            <p class="text-sm text-gray-600 mb-2">Imagen lista para enviar</p>
+                                                            <button type="button" @click="sendWithImage()" :disabled="sending"
+                                                                    class="px-4 py-2 bg-green-500 text-white text-sm rounded-lg hover:bg-green-600 disabled:opacity-50 flex items-center gap-2">
+                                                                <template x-if="!sending">
+                                                                    <span>Enviar imagen</span>
+                                                                </template>
+                                                                <template x-if="sending">
+                                                                    <span class="flex items-center gap-2">
+                                                                        <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                                                                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                                                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                                                                        </svg>
+                                                                        Enviando...
+                                                                    </span>
+                                                                </template>
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </template>
+
+                                            <!-- Drag overlay -->
+                                            <div x-show="isDragging" 
+                                                 class="absolute inset-0 bg-green-50 border-2 border-dashed border-green-400 rounded-xl flex items-center justify-center z-10">
+                                                <p class="text-green-600 font-medium">Suelta la imagen aquí</p>
+                                            </div>
+
                                             <div class="flex-1">
                                                 <textarea wire:model="messageText" rows="1"
                                                           class="w-full px-4 py-2.5 bg-white border-0 rounded-3xl focus:ring-0 resize-none text-sm"
-                                                          placeholder="Escribe un mensaje..."
-                                                          x-on:keydown.enter.prevent="if (!$event.shiftKey) { $wire.sendMessage(); }"
+                                                          placeholder="Escribe un mensaje o pega una imagen..."
+                                                          :disabled="sending"
+                                                          x-on:keydown.enter="if (!$event.shiftKey && !sending) { 
+                                                              $event.preventDefault(); 
+                                                              if (pastedImage) { 
+                                                                  sendWithImage(); 
+                                                              } else { 
+                                                                  sending = true; 
+                                                                  $wire.sendMessage().then(() => { sending = false; }); 
+                                                              } 
+                                                          }"
                                                           x-on:input="$el.style.height = 'auto'; $el.style.height = Math.min($el.scrollHeight, 100) + 'px'"></textarea>
                                             </div>
 
-                                            <!-- Send or Mic Button -->
-                                            <template x-if="messageText && messageText.trim().length > 0">
-                                                <button type="submit" class="p-2.5 bg-green-500 text-white rounded-full hover:bg-green-600 transition-colors">
-                                                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/></svg>
+                                            <!-- Send Button -->
+                                            <template x-if="(messageText && messageText.trim().length > 0) || pastedImage">
+                                                <button type="button" 
+                                                        :disabled="sending"
+                                                        @click="pastedImage ? sendWithImage() : (sending = true, $wire.sendMessage().then(() => { sending = false; }))"
+                                                        class="p-2.5 bg-green-500 text-white rounded-full hover:bg-green-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                                                    <svg x-show="!sending" class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/></svg>
+                                                    <svg x-show="sending" class="w-6 h-6 animate-spin" fill="none" viewBox="0 0 24 24">
+                                                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                                    </svg>
                                                 </button>
                                             </template>
                                         </form>
