@@ -1,7 +1,4 @@
-<div class="space-y-6" 
-     x-data="reportCharts()" 
-     x-init="initCharts()"
-     @charts-updated.window="updateAllCharts($event.detail)">
+<div class="space-y-6" x-data="{ ready: false }" x-init="setTimeout(() => { ready = true; initReportCharts(); }, 100)">
     <!-- Header with Quick Filters -->
     <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
         <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
@@ -297,235 +294,206 @@
 
 @script
 <script>
-    function reportCharts() {
-        return {
-            charts: {},
-            
-            initCharts() {
-                // Initial load
-                setTimeout(() => {
-                    this.loadAllCharts();
-                }, 200);
-            },
-            
-            updateAllCharts(data) {
-                if (data) {
-                    this.loadAllCharts(data);
-                }
-            },
-            
-            loadAllCharts(data = null) {
-                // Get data from PHP if not provided
-                const chartData = data || {
-                    messagesByDate: @json($this->messagesByDate),
-                    messagesByHour: @json($this->messagesByHour),
-                    messagesByDayOfWeek: @json($this->messagesByDayOfWeek),
-                    messagesByType: @json($this->messagesByType),
-                    messagesByChannel: @json($this->messagesByChannel)
-                };
-                
-                this.renderMessagesOverTime(chartData.messagesByDate);
-                this.renderMessagesByHour(chartData.messagesByHour);
-                this.renderMessagesByDay(chartData.messagesByDayOfWeek);
-                this.renderMessagesByType(chartData.messagesByType);
-                this.renderMessagesByChannel(chartData.messagesByChannel);
-            },
-            
-            destroyChart(id) {
-                if (this.charts[id]) {
-                    this.charts[id].destroy();
-                    delete this.charts[id];
-                }
-            },
-            
-            renderMessagesOverTime(data) {
-                const ctx = document.getElementById('messagesOverTimeChart');
-                if (!ctx || !data) return;
-                
-                this.destroyChart('messagesOverTime');
-                
-                this.charts.messagesOverTime = new Chart(ctx, {
-                    type: 'bar',
-                    data: {
-                        labels: data.labels || [],
-                        datasets: [{
-                            label: 'Mensajes',
-                            data: data.data || [],
-                            backgroundColor: 'rgba(249, 115, 22, 0.8)',
-                            borderColor: 'rgb(249, 115, 22)',
-                            borderWidth: 1,
-                            borderRadius: 4,
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        plugins: { legend: { display: false } },
-                        scales: {
-                            y: { beginAtZero: true, grid: { color: 'rgba(0,0,0,0.05)' } },
-                            x: { grid: { display: false } }
-                        }
-                    }
-                });
-            },
-            
-            renderMessagesByHour(data) {
-                const ctx = document.getElementById('messagesByHourChart');
-                if (!ctx || !data) return;
-                
-                this.destroyChart('messagesByHour');
-                
-                this.charts.messagesByHour = new Chart(ctx, {
-                    type: 'line',
-                    data: {
-                        labels: data.labels || [],
-                        datasets: [{
-                            label: 'Mensajes',
-                            data: data.data || [],
-                            borderColor: 'rgb(236, 72, 153)',
-                            backgroundColor: 'rgba(236, 72, 153, 0.1)',
-                            fill: true,
-                            tension: 0.4,
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        plugins: { legend: { display: false } },
-                        scales: {
-                            y: { beginAtZero: true, grid: { color: 'rgba(0,0,0,0.05)' } },
-                            x: { grid: { display: false } }
-                        }
-                    }
-                });
-            },
-            
-            renderMessagesByDay(data) {
-                const ctx = document.getElementById('messagesByDayChart');
-                if (!ctx || !data) return;
-                
-                this.destroyChart('messagesByDay');
-                
-                this.charts.messagesByDay = new Chart(ctx, {
-                    type: 'bar',
-                    data: {
-                        labels: data.labels || [],
-                        datasets: [{
-                            label: 'Mensajes',
-                            data: data.data || [],
-                            backgroundColor: [
-                                'rgba(239, 68, 68, 0.8)',
-                                'rgba(249, 115, 22, 0.8)',
-                                'rgba(234, 179, 8, 0.8)',
-                                'rgba(34, 197, 94, 0.8)',
-                                'rgba(6, 182, 212, 0.8)',
-                                'rgba(99, 102, 241, 0.8)',
-                                'rgba(168, 85, 247, 0.8)',
-                            ],
-                            borderRadius: 4,
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        plugins: { legend: { display: false } },
-                        scales: {
-                            y: { beginAtZero: true, grid: { color: 'rgba(0,0,0,0.05)' } },
-                            x: { grid: { display: false } }
-                        }
-                    }
-                });
-            },
-            
-            renderMessagesByType(data) {
-                const ctx = document.getElementById('messagesByTypeChart');
-                if (!ctx || !data) return;
-                
-                this.destroyChart('messagesByType');
-                
-                const colors = [
-                    'rgba(249, 115, 22, 0.8)',
-                    'rgba(236, 72, 153, 0.8)',
-                    'rgba(139, 92, 246, 0.8)',
-                    'rgba(6, 182, 212, 0.8)',
-                    'rgba(16, 185, 129, 0.8)',
-                    'rgba(245, 158, 11, 0.8)',
-                    'rgba(239, 68, 68, 0.8)',
-                    'rgba(99, 102, 241, 0.8)',
-                ];
-                
-                this.charts.messagesByType = new Chart(ctx, {
-                    type: 'doughnut',
-                    data: {
-                        labels: data.map(d => d.type),
-                        datasets: [{
-                            data: data.map(d => d.total),
-                            backgroundColor: colors.slice(0, data.length),
-                            borderWidth: 2,
-                            borderColor: '#fff',
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        plugins: {
-                            legend: {
-                                position: 'right',
-                                labels: { boxWidth: 12, padding: 8, font: { size: 11 } }
-                            }
-                        }
-                    }
-                });
-            },
-            
-            renderMessagesByChannel(data) {
-                const ctx = document.getElementById('messagesByChannelChart');
-                if (!ctx || !data) return;
-                
-                this.destroyChart('messagesByChannel');
-                
-                const colors = [
-                    'rgba(34, 197, 94, 0.8)',
-                    'rgba(6, 182, 212, 0.8)',
-                    'rgba(99, 102, 241, 0.8)',
-                    'rgba(249, 115, 22, 0.8)',
-                    'rgba(236, 72, 153, 0.8)',
-                ];
-                
-                this.charts.messagesByChannel = new Chart(ctx, {
-                    type: 'bar',
-                    data: {
-                        labels: data.map(d => d.name),
-                        datasets: [{
-                            label: 'Mensajes',
-                            data: data.map(d => d.total),
-                            backgroundColor: colors.slice(0, data.length),
-                            borderRadius: 4,
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        indexAxis: 'y',
-                        plugins: { legend: { display: false } },
-                        scales: {
-                            x: { beginAtZero: true, grid: { color: 'rgba(0,0,0,0.05)' } },
-                            y: { grid: { display: false } }
-                        }
-                    }
-                });
-            }
-        };
-    }
+    // Chart instances storage
+    window.reportChartInstances = window.reportChartInstances || {};
     
-    // Re-render charts after Livewire updates
-    document.addEventListener('livewire:navigated', () => {
-        setTimeout(() => {
-            const el = document.querySelector('[x-data]');
-            if (el && el.__x) {
-                el.__x.$data.loadAllCharts();
+    window.initReportCharts = function() {
+        const data = {
+            messagesByDate: @json($this->messagesByDate),
+            messagesByHour: @json($this->messagesByHour),
+            messagesByDayOfWeek: @json($this->messagesByDayOfWeek),
+            messagesByType: @json($this->messagesByType),
+            messagesByChannel: @json($this->messagesByChannel)
+        };
+        window.renderAllCharts(data);
+    };
+    
+    window.renderAllCharts = function(data) {
+        window.renderMessagesOverTime(data.messagesByDate);
+        window.renderMessagesByHour(data.messagesByHour);
+        window.renderMessagesByDay(data.messagesByDayOfWeek);
+        window.renderMessagesByType(data.messagesByType);
+        window.renderMessagesByChannel(data.messagesByChannel);
+    };
+    
+    window.destroyChart = function(id) {
+        if (window.reportChartInstances[id]) {
+            window.reportChartInstances[id].destroy();
+            delete window.reportChartInstances[id];
+        }
+    };
+    
+    window.renderMessagesOverTime = function(data) {
+        const ctx = document.getElementById('messagesOverTimeChart');
+        if (!ctx || !data) return;
+        window.destroyChart('messagesOverTime');
+        window.reportChartInstances.messagesOverTime = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: data.labels || [],
+                datasets: [{
+                    label: 'Mensajes',
+                    data: data.data || [],
+                    backgroundColor: 'rgba(249, 115, 22, 0.8)',
+                    borderColor: 'rgb(249, 115, 22)',
+                    borderWidth: 1,
+                    borderRadius: 4,
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: {
+                    y: { beginAtZero: true, grid: { color: 'rgba(0,0,0,0.05)' } },
+                    x: { grid: { display: false } }
+                }
             }
-        }, 300);
+        });
+    };
+    
+    window.renderMessagesByHour = function(data) {
+        const ctx = document.getElementById('messagesByHourChart');
+        if (!ctx || !data) return;
+        window.destroyChart('messagesByHour');
+        window.reportChartInstances.messagesByHour = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: data.labels || [],
+                datasets: [{
+                    label: 'Mensajes',
+                    data: data.data || [],
+                    borderColor: 'rgb(236, 72, 153)',
+                    backgroundColor: 'rgba(236, 72, 153, 0.1)',
+                    fill: true,
+                    tension: 0.4,
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: {
+                    y: { beginAtZero: true, grid: { color: 'rgba(0,0,0,0.05)' } },
+                    x: { grid: { display: false } }
+                }
+            }
+        });
+    };
+    
+    window.renderMessagesByDay = function(data) {
+        const ctx = document.getElementById('messagesByDayChart');
+        if (!ctx || !data) return;
+        window.destroyChart('messagesByDay');
+        window.reportChartInstances.messagesByDay = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: data.labels || [],
+                datasets: [{
+                    label: 'Mensajes',
+                    data: data.data || [],
+                    backgroundColor: [
+                        'rgba(239, 68, 68, 0.8)',
+                        'rgba(249, 115, 22, 0.8)',
+                        'rgba(234, 179, 8, 0.8)',
+                        'rgba(34, 197, 94, 0.8)',
+                        'rgba(6, 182, 212, 0.8)',
+                        'rgba(99, 102, 241, 0.8)',
+                        'rgba(168, 85, 247, 0.8)',
+                    ],
+                    borderRadius: 4,
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: {
+                    y: { beginAtZero: true, grid: { color: 'rgba(0,0,0,0.05)' } },
+                    x: { grid: { display: false } }
+                }
+            }
+        });
+    };
+    
+    window.renderMessagesByType = function(data) {
+        const ctx = document.getElementById('messagesByTypeChart');
+        if (!ctx || !data || !data.length) return;
+        window.destroyChart('messagesByType');
+        const colors = [
+            'rgba(249, 115, 22, 0.8)',
+            'rgba(236, 72, 153, 0.8)',
+            'rgba(139, 92, 246, 0.8)',
+            'rgba(6, 182, 212, 0.8)',
+            'rgba(16, 185, 129, 0.8)',
+            'rgba(245, 158, 11, 0.8)',
+            'rgba(239, 68, 68, 0.8)',
+            'rgba(99, 102, 241, 0.8)',
+        ];
+        window.reportChartInstances.messagesByType = new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: data.map(d => d.type),
+                datasets: [{
+                    data: data.map(d => d.total),
+                    backgroundColor: colors.slice(0, data.length),
+                    borderWidth: 2,
+                    borderColor: '#fff',
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'right',
+                        labels: { boxWidth: 12, padding: 8, font: { size: 11 } }
+                    }
+                }
+            }
+        });
+    };
+    
+    window.renderMessagesByChannel = function(data) {
+        const ctx = document.getElementById('messagesByChannelChart');
+        if (!ctx || !data || !data.length) return;
+        window.destroyChart('messagesByChannel');
+        const colors = [
+            'rgba(34, 197, 94, 0.8)',
+            'rgba(6, 182, 212, 0.8)',
+            'rgba(99, 102, 241, 0.8)',
+            'rgba(249, 115, 22, 0.8)',
+            'rgba(236, 72, 153, 0.8)',
+        ];
+        window.reportChartInstances.messagesByChannel = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: data.map(d => d.name),
+                datasets: [{
+                    label: 'Mensajes',
+                    data: data.map(d => d.total),
+                    backgroundColor: colors.slice(0, data.length),
+                    borderRadius: 4,
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                indexAxis: 'y',
+                plugins: { legend: { display: false } },
+                scales: {
+                    x: { beginAtZero: true, grid: { color: 'rgba(0,0,0,0.05)' } },
+                    y: { grid: { display: false } }
+                }
+            }
+        });
+    };
+    
+    // Listen for Livewire chart updates
+    window.addEventListener('charts-updated', function(event) {
+        if (event.detail && event.detail[0]) {
+            window.renderAllCharts(event.detail[0]);
+        }
     });
 </script>
 @endscript
