@@ -3,6 +3,7 @@
 namespace App\Livewire\Reports;
 
 use App\Models\Channel;
+use App\Models\Contact;
 use App\Models\Message;
 use App\Models\User;
 use Carbon\Carbon;
@@ -13,11 +14,14 @@ use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Attributes\Url;
 use Livewire\Attributes\Computed;
+use Livewire\WithPagination;
 
 #[Layout('layouts.app')]
 #[Title('Chats Atendidos')]
 class ChatsAttended extends Component
 {
+    use WithPagination;
+
     #[Url]
     public string $dateFrom = '';
     
@@ -35,6 +39,9 @@ class ChatsAttended extends Component
     
     #[Url]
     public string $messageDirection = 'all'; // all, incoming, outgoing
+
+    #[Url]
+    public int $perPage = 25;
 
     public function mount(): void
     {
@@ -268,6 +275,98 @@ class ChatsAttended extends Component
         ])->toArray();
     }
 
+    /**
+     * Tabla detallada de contactos con toda la información solicitada
+     */
+    public function getContactsTableProperty()
+    {
+        return Contact::query()
+            ->select([
+                'contacts.id',
+                'contacts.name',
+                'contacts.push_name',
+                'contacts.phone_number',
+                'contacts.assigned_user_id',
+                'contacts.channel_id',
+                'contacts.created_at',
+            ])
+            ->with(['assignedUser:id,name', 'channel:id,name', 'labelRelations:id,name,color'])
+            ->withCount([
+                'messages as total_messages' => function ($q) {
+                    $q->whereBetween('sent_at', [$this->dateFrom . ' 00:00:00', $this->dateTo . ' 23:59:59']);
+                },
+                'messages as sent_messages' => function ($q) {
+                    $q->whereBetween('sent_at', [$this->dateFrom . ' 00:00:00', $this->dateTo . ' 23:59:59'])
+                      ->where('direction', 'outgoing');
+                },
+                'messages as received_messages' => function ($q) {
+                    $q->whereBetween('sent_at', [$this->dateFrom . ' 00:00:00', $this->dateTo . ' 23:59:59'])
+                      ->where('direction', 'incoming');
+                },
+            ])
+            ->withMax('messages as last_message_at', 'sent_at')
+            ->when($this->userId, fn($q) => $q->where('contacts.assigned_user_id', $this->userId))
+            ->when($this->channelId, fn($q) => $q->where('contacts.channel_id', $this->channelId))
+            ->whereHas('messages', function ($q) {
+                $q->whereBetween('sent_at', [$this->dateFrom . ' 00:00:00', $this->dateTo . ' 23:59:59']);
+            })
+            ->orderByDesc('last_message_at')
+            ->paginate($this->perPage);
+    }
+
+    /**
+     * Datos para exportar a PDF
+     */
+    public function getExportData(): array
+    {
+        $contacts = Contact::query()
+            ->select([
+                'contacts.id',
+                'contacts.name',
+                'contacts.push_name',
+                'contacts.phone_number',
+                'contacts.assigned_user_id',
+                'contacts.channel_id',
+                'contacts.created_at',
+            ])
+            ->with(['assignedUser:id,name', 'channel:id,name', 'labelRelations:id,name,color'])
+            ->withCount([
+                'messages as total_messages' => function ($q) {
+                    $q->whereBetween('sent_at', [$this->dateFrom . ' 00:00:00', $this->dateTo . ' 23:59:59']);
+                },
+                'messages as sent_messages' => function ($q) {
+                    $q->whereBetween('sent_at', [$this->dateFrom . ' 00:00:00', $this->dateTo . ' 23:59:59'])
+                      ->where('direction', 'outgoing');
+                },
+                'messages as received_messages' => function ($q) {
+                    $q->whereBetween('sent_at', [$this->dateFrom . ' 00:00:00', $this->dateTo . ' 23:59:59'])
+                      ->where('direction', 'incoming');
+                },
+            ])
+            ->withMax('messages as last_message_at', 'sent_at')
+            ->when($this->userId, fn($q) => $q->where('contacts.assigned_user_id', $this->userId))
+            ->when($this->channelId, fn($q) => $q->where('contacts.channel_id', $this->channelId))
+            ->whereHas('messages', function ($q) {
+                $q->whereBetween('sent_at', [$this->dateFrom . ' 00:00:00', $this->dateTo . ' 23:59:59']);
+            })
+            ->orderByDesc('last_message_at')
+            ->get();
+
+        $selectedUser = $this->userId ? User::find($this->userId) : null;
+
+        return [
+            'contacts' => $contacts,
+            'dateFrom' => $this->dateFrom,
+            'dateTo' => $this->dateTo,
+            'selectedUser' => $selectedUser,
+            'totalMessages' => $this->totalMessages,
+            'totalConversations' => $this->totalConversations,
+            'totalIncoming' => $this->totalIncoming,
+            'totalOutgoing' => $this->totalOutgoing,
+            'messagesByUser' => $this->messagesByUser,
+        ];
+    }
+
     private function getBaseQuery()
     {
         return Message::query()
@@ -332,6 +431,7 @@ class ChatsAttended extends Component
     {
         // Dispatch chart update when any filter changes
         if (in_array($property, ['dateFrom', 'dateTo', 'userId', 'channelId', 'groupBy', 'messageDirection'])) {
+            $this->resetPage();
             $this->dispatchChartsUpdate();
         }
     }
@@ -351,6 +451,7 @@ class ChatsAttended extends Component
         unset($this->avgMessagesPerDay);
         unset($this->messagesByUser);
         unset($this->topContacts);
+        unset($this->contactsTable);
         
         $this->dispatch('charts-updated', [
             'messagesByDate' => $this->messagesByDate,
