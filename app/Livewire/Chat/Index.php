@@ -356,6 +356,9 @@ class Index extends Component
             return;
         }
 
+        // Mark conversation as read when sending a message (agent is actively responding)
+        $this->markAsRead($this->selectedContactId);
+
         // If there's a media file, send it
         if ($this->mediaFile) {
             $this->sendMediaMessage($contact, $text);
