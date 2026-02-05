@@ -11,36 +11,24 @@ class NotificationService
 {
     /**
      * Create a notification for a new incoming message.
+     * Creates ONE notification per message (not per user) since messages are shared.
      * Requirements: 5.1, 5.2
      */
     public function createMessageNotification(Message $message): ChatNotification
     {
-        // Get all users assigned to this channel
-        $users = User::whereHas('channels', function ($query) use ($message) {
-            $query->where('channels.id', $message->channel_id);
-        })->get();
-
         $contact = $message->contact;
         $channel = $message->channel;
         
-        // Create notification for each user assigned to the channel
-        $notification = null;
-        
-        foreach ($users as $user) {
-            $notification = ChatNotification::create([
-                'user_id' => $user->id,
-                'contact_id' => $contact->id,
-                'channel_id' => $message->channel_id,
-                'message_id' => $message->id,
-                'type' => 'new_message',
-                'title' => $contact->display_name,
-                'body' => $this->truncateMessage($message->content, 100),
-                'is_read' => false,
-            ]);
+        // Check if notification already exists for this message
+        $existing = ChatNotification::where('message_id', $message->id)->first();
+        if ($existing) {
+            return $existing;
         }
         
-        // Return the last created notification (or create a dummy one if no users)
-        return $notification ?? ChatNotification::make([
+        // Create a single notification for this message (user_id = null means global)
+        // All users assigned to the channel will see this notification
+        $notification = ChatNotification::create([
+            'user_id' => null, // Global notification - visible to all channel users
             'contact_id' => $contact->id,
             'channel_id' => $message->channel_id,
             'message_id' => $message->id,
@@ -49,15 +37,35 @@ class NotificationService
             'body' => $this->truncateMessage($message->content, 100),
             'is_read' => false,
         ]);
+        
+        return $notification;
     }
 
     /**
      * Get the count of unread notifications for a user.
+     * Counts global notifications (user_id = null) for channels the user has access to.
      * Requirements: 5.1, 5.4
      */
     public function getUnreadCount(int $userId): int
     {
-        return ChatNotification::where('user_id', $userId)
+        $user = User::find($userId);
+        if (!$user) {
+            return 0;
+        }
+
+        // Get channel IDs the user has access to
+        if ($user->hasRole('admin')) {
+            $channelIds = \App\Models\Channel::where('is_active', true)->pluck('id');
+        } else {
+            $channelIds = $user->channels()->pluck('channels.id');
+        }
+
+        if ($channelIds->isEmpty()) {
+            return 0;
+        }
+
+        // Count unread global notifications for user's channels
+        return ChatNotification::whereIn('channel_id', $channelIds)
             ->where('is_read', false)
             ->count();
     }
@@ -65,11 +73,28 @@ class NotificationService
 
     /**
      * Get notifications for a user with optional limit.
+     * Returns global notifications for channels the user has access to.
      * Requirements: 5.2
      */
     public function getUserNotifications(int $userId, int $limit = 20): Collection
     {
-        return ChatNotification::where('user_id', $userId)
+        $user = User::find($userId);
+        if (!$user) {
+            return collect();
+        }
+
+        // Get channel IDs the user has access to
+        if ($user->hasRole('admin')) {
+            $channelIds = \App\Models\Channel::where('is_active', true)->pluck('id');
+        } else {
+            $channelIds = $user->channels()->pluck('channels.id');
+        }
+
+        if ($channelIds->isEmpty()) {
+            return collect();
+        }
+
+        return ChatNotification::whereIn('channel_id', $channelIds)
             ->with(['contact', 'channel', 'message'])
             ->orderByDesc('created_at')
             ->limit($limit)
@@ -90,13 +115,15 @@ class NotificationService
     }
 
     /**
-     * Mark all notifications for a conversation as read.
+     * Mark all notifications for a conversation as read for ALL users.
+     * When one agent reads a conversation, it should be marked as read for everyone.
      * Requirements: 5.4
      */
     public function markConversationAsRead(int $userId, int $contactId, int $channelId): void
     {
-        ChatNotification::where('user_id', $userId)
-            ->where('contact_id', $contactId)
+        // Mark notifications as read for ALL users assigned to this channel
+        // This ensures that when one agent reads a message, all agents see it as read
+        ChatNotification::where('contact_id', $contactId)
             ->where('channel_id', $channelId)
             ->where('is_read', false)
             ->update([
@@ -107,11 +134,28 @@ class NotificationService
 
     /**
      * Get notifications grouped by channel for a user.
+     * Returns global notifications for channels the user has access to.
      * Requirements: 5.5
      */
     public function getNotificationsGroupedByChannel(int $userId, int $limit = 20): Collection
     {
-        $notifications = ChatNotification::where('user_id', $userId)
+        $user = User::find($userId);
+        if (!$user) {
+            return collect();
+        }
+
+        // Get channel IDs the user has access to
+        if ($user->hasRole('admin')) {
+            $channelIds = \App\Models\Channel::where('is_active', true)->pluck('id');
+        } else {
+            $channelIds = $user->channels()->pluck('channels.id');
+        }
+
+        if ($channelIds->isEmpty()) {
+            return collect();
+        }
+
+        $notifications = ChatNotification::whereIn('channel_id', $channelIds)
             ->where('is_read', false)
             ->with(['contact', 'channel'])
             ->orderByDesc('created_at')

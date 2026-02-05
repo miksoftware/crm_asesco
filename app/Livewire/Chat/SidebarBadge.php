@@ -2,7 +2,7 @@
 
 namespace App\Livewire\Chat;
 
-use App\Models\ChatNotification;
+use App\Services\NotificationService;
 use Livewire\Component;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\On;
@@ -20,9 +20,8 @@ class SidebarBadge extends Component
             return 0;
         }
 
-        return ChatNotification::where('user_id', $user->id)
-            ->where('is_read', false)
-            ->count();
+        $notificationService = app(NotificationService::class);
+        return $notificationService->getUnreadCount($user->id);
     }
 
     #[On('notifications-updated')]

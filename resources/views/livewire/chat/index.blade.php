@@ -1,4 +1,6 @@
-<div class="h-[calc(100vh-8rem)] flex flex-col" x-data="{ showContactInfo: true }">
+<div class="h-[calc(100vh-8rem)] flex flex-col" 
+     x-data="{ showContactInfo: true }"
+     wire:poll.10s="refreshUnreadCounts">
     @if($this->channels->isEmpty())
         <div class="flex-1 flex items-center justify-center bg-gray-50">
             <div class="text-center">

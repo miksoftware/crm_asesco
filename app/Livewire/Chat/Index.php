@@ -974,10 +974,13 @@ class Index extends Component
         $notificationService = app(NotificationService::class);
         $notificationService->markConversationAsRead(auth()->id(), $contactId, $this->selectedChannelId);
 
+        // Clear all caches to ensure fresh data
+        unset($this->channelUnreadCounts);
+        unset($this->conversations);
+
         // Dispatch to notification components to update the count
         $this->dispatch('notifications-updated')->to(NotificationBadge::class);
         $this->dispatch('notifications-updated')->to(SidebarBadge::class);
-        unset($this->conversations);
     }
 
     public function markAsUnread(int $contactId): void
@@ -1552,6 +1555,16 @@ class Index extends Component
         } catch (\Exception $e) {
             Log::warning('Failed to load media on-demand', ['messageId' => $messageId, 'error' => $e->getMessage()]);
         }
+    }
+
+    /**
+     * Refresh unread counts - called by polling.
+     * This ensures all users see updated counts when any agent reads messages.
+     */
+    public function refreshUnreadCounts(): void
+    {
+        unset($this->channelUnreadCounts);
+        unset($this->conversations);
     }
 
     public function render()
