@@ -43,7 +43,7 @@ class NotificationService
 
     /**
      * Get the count of unread notifications for a user.
-     * Counts global notifications (user_id = null) for channels the user has access to.
+     * Counts global notifications for channels the user has access to.
      * Requirements: 5.1, 5.4
      */
     public function getUnreadCount(int $userId): int
@@ -53,12 +53,8 @@ class NotificationService
             return 0;
         }
 
-        // Get channel IDs the user has access to
-        if ($user->hasRole('admin')) {
-            $channelIds = \App\Models\Channel::where('is_active', true)->pluck('id');
-        } else {
-            $channelIds = $user->channels()->pluck('channels.id');
-        }
+        // Get channel IDs the user has assigned (even for admin)
+        $channelIds = $user->channels()->pluck('channels.id');
 
         if ($channelIds->isEmpty()) {
             return 0;
@@ -73,7 +69,7 @@ class NotificationService
 
     /**
      * Get notifications for a user with optional limit.
-     * Returns global notifications for channels the user has access to.
+     * Returns global notifications for channels the user has assigned.
      * Requirements: 5.2
      */
     public function getUserNotifications(int $userId, int $limit = 20): Collection
@@ -83,12 +79,8 @@ class NotificationService
             return collect();
         }
 
-        // Get channel IDs the user has access to
-        if ($user->hasRole('admin')) {
-            $channelIds = \App\Models\Channel::where('is_active', true)->pluck('id');
-        } else {
-            $channelIds = $user->channels()->pluck('channels.id');
-        }
+        // Get channel IDs the user has assigned (even for admin)
+        $channelIds = $user->channels()->pluck('channels.id');
 
         if ($channelIds->isEmpty()) {
             return collect();
@@ -134,7 +126,7 @@ class NotificationService
 
     /**
      * Get notifications grouped by channel for a user.
-     * Returns global notifications for channels the user has access to.
+     * Returns global notifications for channels the user has assigned.
      * Requirements: 5.5
      */
     public function getNotificationsGroupedByChannel(int $userId, int $limit = 20): Collection
@@ -144,12 +136,8 @@ class NotificationService
             return collect();
         }
 
-        // Get channel IDs the user has access to
-        if ($user->hasRole('admin')) {
-            $channelIds = \App\Models\Channel::where('is_active', true)->pluck('id');
-        } else {
-            $channelIds = $user->channels()->pluck('channels.id');
-        }
+        // Get channel IDs the user has assigned (even for admin)
+        $channelIds = $user->channels()->pluck('channels.id');
 
         if ($channelIds->isEmpty()) {
             return collect();
