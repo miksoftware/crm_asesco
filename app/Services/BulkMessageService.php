@@ -79,7 +79,7 @@ class BulkMessageService
                 
                 return true;
             } else {
-                $errorMsg = $response['error'] ?? 'Error desconocido';
+                $errorMsg = $this->parseErrorMessage($response);
                 $recipient->update([
                     'status' => 'failed',
                     'error_message' => $errorMsg,
@@ -95,9 +95,10 @@ class BulkMessageService
                 return false;
             }
         } catch (\Exception $e) {
+            $errorMsg = $this->parseExceptionMessage($e->getMessage());
             $recipient->update([
                 'status' => 'failed',
-                'error_message' => $e->getMessage(),
+                'error_message' => $errorMsg,
             ]);
             
             Log::error('Bulk message exception', [
@@ -108,6 +109,87 @@ class BulkMessageService
             
             return false;
         }
+    }
+
+    /**
+     * Parsea el mensaje de error de la API y lo convierte en un mensaje amigable.
+     */
+    private function parseErrorMessage(array $response): string
+    {
+        $rawError = $response['error'] ?? '';
+        $statusCode = $response['status'] ?? 0;
+        
+        // Detectar si el número no existe en WhatsApp
+        if (str_contains($rawError, '"exists":false') || str_contains($rawError, 'exists":false')) {
+            return 'El número no está registrado en WhatsApp';
+        }
+        
+        // Detectar errores de número inválido
+        if (str_contains($rawError, 'invalid') || str_contains($rawError, 'Invalid')) {
+            return 'Número de teléfono inválido';
+        }
+        
+        // Detectar errores de conexión
+        if (str_contains($rawError, 'not connected') || str_contains($rawError, 'disconnected')) {
+            return 'Canal desconectado';
+        }
+        
+        // Detectar errores de rate limit
+        if (str_contains($rawError, 'rate') || str_contains($rawError, 'limit') || $statusCode === 429) {
+            return 'Límite de envío alcanzado, intente más tarde';
+        }
+        
+        // Detectar errores de timeout
+        if (str_contains($rawError, 'timeout') || str_contains($rawError, 'Timeout')) {
+            return 'Tiempo de espera agotado';
+        }
+        
+        // Detectar errores de bloqueo
+        if (str_contains($rawError, 'blocked') || str_contains($rawError, 'spam')) {
+            return 'Número bloqueado o marcado como spam';
+        }
+        
+        // Detectar errores de instancia
+        if (str_contains($rawError, 'instance') || str_contains($rawError, 'Instance')) {
+            return 'Error en la instancia de WhatsApp';
+        }
+        
+        // Error genérico con código de estado
+        if ($statusCode >= 400 && $statusCode < 500) {
+            return 'Error en la solicitud (código ' . $statusCode . ')';
+        }
+        
+        if ($statusCode >= 500) {
+            return 'Error del servidor de WhatsApp';
+        }
+        
+        // Si no se puede identificar, mostrar un mensaje genérico
+        return $rawError ?: 'Error desconocido al enviar';
+    }
+
+    /**
+     * Parsea excepciones y las convierte en mensajes amigables.
+     */
+    private function parseExceptionMessage(string $message): string
+    {
+        if (str_contains($message, 'Connection refused')) {
+            return 'No se pudo conectar al servidor de WhatsApp';
+        }
+        
+        if (str_contains($message, 'timed out') || str_contains($message, 'Timeout')) {
+            return 'Tiempo de espera agotado';
+        }
+        
+        if (str_contains($message, 'SSL') || str_contains($message, 'certificate')) {
+            return 'Error de conexión segura';
+        }
+        
+        // Limitar longitud del mensaje
+        if (strlen($message) > 100) {
+            return substr($message, 0, 100) . '...';
+        }
+        
+        return $message ?: 'Error inesperado';
     }
 
     /**
