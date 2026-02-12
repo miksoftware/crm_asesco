@@ -183,15 +183,23 @@ class MessageService
             ]);
         }
         
+        // Normalize message data (unwrap viewOnce messages, etc.)
+        $normalizedMessage = $this->normalizeMessageData($data['message'] ?? []);
+        
         // Determine message type and content
-        $messageType = $this->determineMessageType($data['message'] ?? []);
-        $content = $this->extractMessageContent($data['message'] ?? [], $messageType);
-        $mediaUrl = $this->extractMediaUrl($data['message'] ?? [], $messageType);
-        $mediaMimeType = $this->extractMediaMimeType($data['message'] ?? [], $messageType);
+        $messageType = $this->determineMessageType($normalizedMessage);
+        $content = $this->extractMessageContent($normalizedMessage, $messageType);
+        $mediaUrl = $this->extractMediaUrl($normalizedMessage, $messageType);
+        $mediaMimeType = $this->extractMediaMimeType($normalizedMessage, $messageType);
         
         // For media messages, try to get base64 and save locally
-        if (in_array($messageType, ['image', 'video', 'audio', 'document']) && $messageId && $remoteJid) {
-            $localMediaUrl = $this->downloadAndSaveMedia($instanceName, $messageId, $remoteJid, $messageType, $mediaMimeType);
+        if (in_array($messageType, ['image', 'video', 'audio', 'document', 'sticker']) && $messageId) {
+            // Try inline base64 from webhook first (when webhookBase64 is enabled in Evolution API)
+            $inlineBase64 = $data['message']['base64'] ?? null;
+            
+            $localMediaUrl = $this->downloadAndSaveMedia(
+                $instanceName, $messageId, $remoteJid, $messageType, $mediaMimeType, $inlineBase64
+            );
             if ($localMediaUrl) {
                 $mediaUrl = $localMediaUrl;
             }
@@ -268,26 +276,66 @@ class MessageService
 
     /**
      * Download media from Evolution API and save locally.
+     * Supports inline base64 from webhook (webhookBase64) and API fallback with retry.
      */
-    private function downloadAndSaveMedia(string $instanceName, string $messageId, string $remoteJid, string $type, ?string $mimeType): ?string
+    private function downloadAndSaveMedia(string $instanceName, string $messageId, string $remoteJid, string $type, ?string $mimeType, ?string $inlineBase64 = null): ?string
     {
         try {
-            $result = $this->evolutionApi->getMediaBase64($instanceName, $messageId, $remoteJid);
+            $base64 = null;
+            $resolvedMimeType = $mimeType;
             
-            if (!$result['success'] || empty($result['data']['base64'])) {
-                Log::warning('Failed to download media from Evolution API', [
+            // Option 1: Use inline base64 from webhook (webhookBase64 enabled in Evolution API)
+            if ($inlineBase64) {
+                $base64 = $inlineBase64;
+                Log::info('Using inline base64 from webhook for media', [
+                    'messageId' => $messageId,
+                    'type' => $type,
+                ]);
+            }
+            
+            // Option 2: Fetch from Evolution API with retry
+            if (!$base64 && $remoteJid) {
+                $maxRetries = 2;
+                for ($attempt = 1; $attempt <= $maxRetries; $attempt++) {
+                    if ($attempt > 1) {
+                        usleep(1500000); // Wait 1.5 seconds before retry
+                        Log::info("Retrying media download (attempt {$attempt}/{$maxRetries})", [
+                            'messageId' => $messageId,
+                        ]);
+                    }
+                    
+                    $result = $this->evolutionApi->getMediaBase64($instanceName, $messageId, $remoteJid);
+                    
+                    if ($result['success'] && !empty($result['data']['base64'])) {
+                        $base64 = $result['data']['base64'];
+                        $resolvedMimeType = $result['data']['mimetype'] ?? $mimeType;
+                        break;
+                    }
+                    
+                    Log::warning("Failed to download media (attempt {$attempt}/{$maxRetries})", [
+                        'instance' => $instanceName,
+                        'messageId' => $messageId,
+                        'remoteJid' => $remoteJid,
+                        'error' => $result['error'] ?? 'No base64 data',
+                        'status' => $result['status'] ?? null,
+                    ]);
+                }
+            }
+            
+            if (!$base64) {
+                Log::error('All media download attempts failed', [
                     'instance' => $instanceName,
                     'messageId' => $messageId,
-                    'error' => $result['error'] ?? 'No base64 data',
+                    'type' => $type,
+                    'remoteJid' => $remoteJid,
                 ]);
                 return null;
             }
             
-            $base64 = $result['data']['base64'];
-            $mimeType = $result['data']['mimetype'] ?? $mimeType ?? 'application/octet-stream';
+            $resolvedMimeType = $resolvedMimeType ?? 'application/octet-stream';
             
             // Determine file extension from mime type
-            $extension = $this->getExtensionFromMimeType($mimeType, $type);
+            $extension = $this->getExtensionFromMimeType($resolvedMimeType, $type);
             
             // Generate unique filename
             $filename = $type . '_' . $messageId . '.' . $extension;
@@ -295,7 +343,22 @@ class MessageService
             
             // Decode and save
             $content = base64_decode($base64);
+            
+            if ($content === false || strlen($content) === 0) {
+                Log::error('Failed to decode base64 media content', [
+                    'messageId' => $messageId,
+                    'base64_length' => strlen($base64),
+                ]);
+                return null;
+            }
+            
             \Illuminate\Support\Facades\Storage::disk('public')->put($path, $content);
+            
+            Log::info('Media saved successfully', [
+                'messageId' => $messageId,
+                'path' => $path,
+                'size' => strlen($content),
+            ]);
             
             return \Illuminate\Support\Facades\Storage::disk('public')->url($path);
         } catch (\Exception $e) {
@@ -303,9 +366,31 @@ class MessageService
                 'instance' => $instanceName,
                 'messageId' => $messageId,
                 'exception' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
             ]);
             return null;
         }
+    }
+
+    /**
+     * Normalize message data by unwrapping viewOnce messages.
+     * This ensures all extract methods can work with a flat structure.
+     */
+    private function normalizeMessageData(array $messageData): array
+    {
+        // Unwrap viewOnceMessage
+        if (isset($messageData['viewOnceMessage']['message'])) {
+            $inner = $messageData['viewOnceMessage']['message'];
+            $inner['_isViewOnce'] = true;
+            return $inner;
+        }
+        // Unwrap viewOnceMessageV2
+        if (isset($messageData['viewOnceMessageV2']['message'])) {
+            $inner = $messageData['viewOnceMessageV2']['message'];
+            $inner['_isViewOnce'] = true;
+            return $inner;
+        }
+        return $messageData;
     }
 
     /**
@@ -439,9 +524,7 @@ class MessageService
                 return 'deleted';
             }
         }
-        if (isset($messageData['viewOnceMessage']) || isset($messageData['viewOnceMessageV2'])) {
-            return 'image';
-        }
+        // viewOnceMessage is handled by normalizeMessageData() before this method is called
         if (isset($messageData['pollCreationMessage']) || isset($messageData['pollCreationMessageV3'])) {
             return 'text';
         }
@@ -461,14 +544,15 @@ class MessageService
                 ?? ($messageData['pollCreationMessageV3']['name'] ?? null ? '📊 ' . $messageData['pollCreationMessageV3']['name'] : null)
                 ?? null,
             'image' => $messageData['imageMessage']['caption'] 
-                ?? ($messageData['viewOnceMessage'] ? '[Vista única]' : null)
-                ?? ($messageData['viewOnceMessageV2'] ? '[Vista única]' : null)
+                ?? (($messageData['_isViewOnce'] ?? false) ? '[Vista única]' : null)
                 ?? null,
             'document' => $messageData['documentMessage']['fileName'] 
                 ?? $messageData['documentWithCaptionMessage']['message']['documentMessage']['fileName'] 
                 ?? '[Documento]',
             'audio' => '[Audio]',
-            'video' => $messageData['videoMessage']['caption'] ?? null,
+            'video' => $messageData['videoMessage']['caption'] 
+                ?? (($messageData['_isViewOnce'] ?? false) ? '[Vista única]' : null)
+                ?? null,
             'contact' => $messageData['contactMessage']['displayName'] 
                 ?? $messageData['contactsArrayMessage']['contacts'][0]['displayName'] 
                 ?? '[Contacto]',
@@ -495,6 +579,7 @@ class MessageService
                 ?? null,
             'audio' => $messageData['audioMessage']['url'] ?? $messageData['pttMessage']['url'] ?? null,
             'video' => $messageData['videoMessage']['url'] ?? null,
+            'sticker' => $messageData['stickerMessage']['url'] ?? null,
             default => null,
         };
     }
@@ -511,6 +596,7 @@ class MessageService
                 ?? 'application/octet-stream',
             'audio' => $messageData['audioMessage']['mimetype'] ?? $messageData['pttMessage']['mimetype'] ?? 'audio/ogg; codecs=opus',
             'video' => $messageData['videoMessage']['mimetype'] ?? 'video/mp4',
+            'sticker' => $messageData['stickerMessage']['mimetype'] ?? 'image/webp',
             default => null,
         };
     }

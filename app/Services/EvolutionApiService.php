@@ -190,7 +190,7 @@ class EvolutionApiService
                 'enabled' => true,
                 'url' => $url,
                 'webhookByEvents' => false,
-                'webhookBase64' => false,
+                'webhookBase64' => true,
                 'events' => [
                     'MESSAGES_UPSERT',
                     'MESSAGES_UPDATE', 
@@ -268,15 +268,18 @@ class EvolutionApiService
      */
     public function getMediaBase64(string $instanceName, string $messageId, string $remoteJid): array
     {
-        $response = $this->request()->post("/chat/getBase64FromMediaMessage/{$instanceName}", [
-            'message' => [
-                'key' => [
-                    'id' => $messageId,
-                    'remoteJid' => $remoteJid,
+        $response = $this->request()
+            ->timeout(60)
+            ->post("/chat/getBase64FromMediaMessage/{$instanceName}", [
+                'message' => [
+                    'key' => [
+                        'id' => $messageId,
+                        'remoteJid' => $remoteJid,
+                        'fromMe' => false,
+                    ],
                 ],
-            ],
-            'convertToMp4' => false,
-        ]);
+                'convertToMp4' => false,
+            ]);
 
         return $this->handleResponse($response);
     }

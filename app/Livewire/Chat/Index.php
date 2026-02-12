@@ -80,6 +80,12 @@ class Index extends Component
     // Sync state
     public bool $isSyncing = false;
 
+    // Forward message modal
+    public bool $showForwardModal = false;
+    public ?int $forwardMessageId = null;
+    public string $forwardToNumber = '';
+    public string $forwardSearch = '';
+
     // Permission flags
     public bool $canSend = false;
     public bool $canManageLabels = false;
@@ -943,6 +949,180 @@ class Index extends Component
         }
 
         unset($this->messages);
+    }
+
+    /**
+     * Abrir modal de reenvío de mensaje.
+     */
+    public function openForwardModal(int $messageId): void
+    {
+        if (!$this->canSend) {
+            $this->dispatch('toast', type: 'error', message: 'No tienes permiso para enviar mensajes');
+            return;
+        }
+
+        $this->forwardMessageId = $messageId;
+        $this->forwardToNumber = '';
+        $this->forwardSearch = '';
+        $this->showForwardModal = true;
+    }
+
+    public function closeForwardModal(): void
+    {
+        $this->showForwardModal = false;
+        $this->forwardMessageId = null;
+        $this->forwardToNumber = '';
+        $this->forwardSearch = '';
+    }
+
+    /**
+     * Contactos disponibles para reenviar (del mismo canal).
+     */
+    #[Computed]
+    public function forwardContacts(): Collection
+    {
+        if (!$this->selectedChannelId) {
+            return collect();
+        }
+
+        $query = Contact::where('channel_id', $this->selectedChannelId)
+            ->whereNotNull('phone_number')
+            ->where('phone_number', '!=', '');
+
+        if ($this->forwardSearch) {
+            $search = $this->forwardSearch;
+            $query->where(function ($q) use ($search) {
+                $q->where('phone_number', 'like', "%{$search}%")
+                  ->orWhere('name', 'like', "%{$search}%")
+                  ->orWhere('push_name', 'like', "%{$search}%");
+            });
+        }
+
+        return $query->orderBy('updated_at', 'desc')->limit(20)->get();
+    }
+
+    /**
+     * Seleccionar contacto para reenviar.
+     */
+    public function selectForwardContact(string $phoneNumber): void
+    {
+        $this->forwardToNumber = $phoneNumber;
+    }
+
+    /**
+     * Reenviar mensaje a otro número.
+     */
+    public function forwardMessage(): void
+    {
+        if (!$this->canSend) {
+            $this->dispatch('toast', type: 'error', message: 'No tienes permiso para enviar mensajes');
+            return;
+        }
+
+        $number = trim($this->forwardToNumber);
+        if (empty($number)) {
+            $this->dispatch('toast', type: 'error', message: 'Ingresa un número de destino');
+            return;
+        }
+
+        $message = Message::find($this->forwardMessageId);
+        if (!$message) {
+            $this->dispatch('toast', type: 'error', message: 'Mensaje no encontrado');
+            return;
+        }
+
+        $channel = Channel::find($this->selectedChannelId);
+        if (!$channel || $channel->status !== 'connected') {
+            $this->dispatch('toast', type: 'error', message: 'El canal no está conectado');
+            return;
+        }
+
+        // Normalizar número
+        $number = preg_replace('/[^0-9]/', '', $number);
+
+        $evolutionApi = app(EvolutionApiService::class);
+
+        try {
+            $response = null;
+
+            if ($message->type === 'text') {
+                // Reenviar texto
+                $response = $evolutionApi->sendTextMessage(
+                    $channel->instance_name,
+                    $number,
+                    $message->content ?? ''
+                );
+            } elseif (in_array($message->type, ['image', 'video', 'audio', 'document']) && $message->media_url) {
+                // Reenviar media: leer archivo y convertir a base64
+                $mediaPath = str_replace(Storage::disk('public')->url(''), '', $message->media_url);
+                
+                if (Storage::disk('public')->exists($mediaPath)) {
+                    $fileContent = Storage::disk('public')->get($mediaPath);
+                    $base64 = base64_encode($fileContent);
+                    $mimeType = $message->media_mime_type ?? 'application/octet-stream';
+
+                    if ($message->type === 'image') {
+                        $response = $evolutionApi->sendImageMessage(
+                            $channel->instance_name, $number, $base64, $message->content, $mimeType
+                        );
+                    } elseif ($message->type === 'video') {
+                        $response = $evolutionApi->sendVideoMessage(
+                            $channel->instance_name, $number, $base64, $message->content, $mimeType
+                        );
+                    } elseif ($message->type === 'audio') {
+                        $response = $evolutionApi->sendAudioMessage(
+                            $channel->instance_name, $number, $base64, $mimeType
+                        );
+                    } elseif ($message->type === 'document') {
+                        $fileName = $message->content ?? 'documento';
+                        $response = $evolutionApi->sendDocumentMessage(
+                            $channel->instance_name, $number, $base64, $fileName, $mimeType
+                        );
+                    }
+                } else {
+                    // Si no hay archivo local, reenviar como texto con indicación
+                    $text = "↪ Mensaje reenviado:\n" . ($message->content ?? '[Media no disponible]');
+                    $response = $evolutionApi->sendTextMessage($channel->instance_name, $number, $text);
+                }
+            } else {
+                // Para otros tipos, reenviar como texto
+                $text = $message->content ?? '[Mensaje reenviado]';
+                $response = $evolutionApi->sendTextMessage($channel->instance_name, $number, $text);
+            }
+
+            if ($response && $response['success']) {
+                // Buscar o crear contacto destino
+                $destContact = Contact::firstOrCreate(
+                    ['channel_id' => $channel->id, 'phone_number' => $number],
+                    ['remote_jid' => $number . '@s.whatsapp.net']
+                );
+
+                // Guardar el mensaje reenviado
+                Message::create([
+                    'contact_id' => $destContact->id,
+                    'channel_id' => $channel->id,
+                    'user_id' => auth()->id(),
+                    'message_id' => $response['data']['key']['id'] ?? null,
+                    'direction' => 'outgoing',
+                    'type' => ($message->type === 'text' || !$message->media_url) ? 'text' : $message->type,
+                    'content' => $message->content,
+                    'media_url' => ($message->media_url && in_array($message->type, ['image', 'video', 'audio', 'document'])) ? $message->media_url : null,
+                    'media_mime_type' => $message->media_mime_type,
+                    'status' => 'sent',
+                    'is_read' => true,
+                    'sent_at' => now(),
+                ]);
+
+                $this->closeForwardModal();
+                $this->dispatch('toast', type: 'success', message: 'Mensaje reenviado a ' . $number);
+            } else {
+                $error = $response['error'] ?? 'Error desconocido';
+                $this->dispatch('toast', type: 'error', message: 'Error al reenviar: ' . $error);
+            }
+        } catch (\Exception $e) {
+            Log::error('Error forwarding message', ['error' => $e->getMessage()]);
+            $this->dispatch('toast', type: 'error', message: 'Error: ' . $e->getMessage());
+        }
     }
 
     public function loadMoreMessages(): void

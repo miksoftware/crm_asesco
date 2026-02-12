@@ -276,7 +276,15 @@
 
                         <!-- Messages -->
                         @foreach($this->messages as $message)
-                            <div wire:key="message-{{ $message->id }}" class="flex {{ $message->direction === 'outgoing' ? 'justify-end' : 'justify-start' }} mb-1">
+                            <div wire:key="message-{{ $message->id }}" class="flex {{ $message->direction === 'outgoing' ? 'justify-end' : 'justify-start' }} mb-1 group/msg">
+                                {{-- Botón reenviar (izquierda para outgoing) --}}
+                                @if($message->direction === 'outgoing' && $canSend)
+                                    <button wire:click="openForwardModal({{ $message->id }})" 
+                                            class="self-center p-1.5 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-full opacity-0 group-hover/msg:opacity-100 transition-all mr-1"
+                                            title="Reenviar">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a5 5 0 015 5v3M3 10l4-4M3 10l4 4"/></svg>
+                                    </button>
+                                @endif
                                 <div class="max-w-[65%] {{ $message->direction === 'outgoing' ? 'bg-[#d9fdd3]' : 'bg-white' }} rounded-lg px-3 py-1.5 shadow-sm relative min-w-[80px]"
                                      style="{{ $message->direction === 'outgoing' ? 'border-top-right-radius: 0;' : 'border-top-left-radius: 0;' }}">
                                     @if($message->direction === 'outgoing' && $message->user)
@@ -399,6 +407,14 @@
                                         @endif
                                     </div>
                                 </div>
+                                {{-- Botón reenviar (derecha para incoming) --}}
+                                @if($message->direction === 'incoming' && $canSend)
+                                    <button wire:click="openForwardModal({{ $message->id }})" 
+                                            class="self-center p-1.5 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-full opacity-0 group-hover/msg:opacity-100 transition-all ml-1"
+                                            title="Reenviar">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a5 5 0 015 5v3M3 10l4-4M3 10l4 4"/></svg>
+                                    </button>
+                                @endif
                             </div>
                         @endforeach
                     </div>
@@ -883,6 +899,98 @@
                             </button>
                         </div>
                     </form>
+                </div>
+            </div>
+        </div>
+    @endteleport
+
+    <!-- Forward Message Modal -->
+    @teleport('body')
+        <div x-data="{ show: @entangle('showForwardModal') }" x-show="show" x-cloak class="fixed inset-0 z-50 overflow-y-auto">
+            <div class="flex items-center justify-center min-h-screen px-4">
+                <div class="fixed inset-0 bg-black/30 backdrop-blur-sm" x-show="show" x-transition wire:click="closeForwardModal"></div>
+                <div class="relative bg-white rounded-2xl shadow-xl w-full max-w-md p-6" x-show="show" x-transition>
+                    <div class="text-center mb-4">
+                        <div class="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center mx-auto mb-4">
+                            <svg class="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a5 5 0 015 5v3M3 10l4-4M3 10l4 4"/>
+                            </svg>
+                        </div>
+                        <h3 class="text-lg font-semibold text-gray-900">Reenviar Mensaje</h3>
+                        <p class="text-sm text-gray-500">Selecciona un contacto o ingresa un número</p>
+                    </div>
+
+                    <div class="space-y-4">
+                        <!-- Número destino -->
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Número de destino <span class="text-red-500">*</span></label>
+                            <div class="relative">
+                                <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                    <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"/>
+                                    </svg>
+                                </div>
+                                <input type="text" wire:model="forwardToNumber" 
+                                       class="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500" 
+                                       placeholder="Ej: 573001234567"
+                                       inputmode="numeric">
+                            </div>
+                            <p class="mt-1 text-xs text-gray-500">Incluye el código de país sin el signo +</p>
+                        </div>
+
+                        <!-- Buscar contacto existente -->
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">O busca un contacto</label>
+                            <input type="text" wire:model.live.debounce.300ms="forwardSearch" 
+                                   class="w-full px-4 py-2.5 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500" 
+                                   placeholder="Buscar por nombre o número...">
+                        </div>
+
+                        <!-- Lista de contactos -->
+                        <div class="max-h-48 overflow-y-auto border border-gray-200 rounded-xl divide-y divide-gray-100">
+                            @forelse($this->forwardContacts as $fContact)
+                                <button type="button" 
+                                        wire:click="selectForwardContact('{{ $fContact->phone_number }}')"
+                                        class="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-green-50 transition-colors text-left
+                                               {{ $forwardToNumber === $fContact->phone_number ? 'bg-green-50 border-l-4 border-l-green-500' : '' }}">
+                                    <div class="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center flex-shrink-0">
+                                        <span class="text-sm font-semibold text-gray-500">{{ strtoupper(substr($fContact->display_name, 0, 1)) }}</span>
+                                    </div>
+                                    <div class="flex-1 min-w-0">
+                                        <p class="text-sm font-medium text-gray-900 truncate">{{ $fContact->display_name }}</p>
+                                        <p class="text-xs text-gray-500">{{ $fContact->phone_number }}</p>
+                                    </div>
+                                    @if($forwardToNumber === $fContact->phone_number)
+                                        <svg class="w-5 h-5 text-green-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+                                    @endif
+                                </button>
+                            @empty
+                                <div class="px-4 py-3 text-center text-sm text-gray-500">
+                                    No se encontraron contactos
+                                </div>
+                            @endforelse
+                        </div>
+
+                        <!-- Botones -->
+                        <div class="flex gap-3 pt-2">
+                            <button type="button" wire:click="closeForwardModal" 
+                                    class="flex-1 px-4 py-2.5 border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50 font-medium transition-colors">
+                                Cancelar
+                            </button>
+                            <button type="button" wire:click="forwardMessage"
+                                    wire:loading.attr="disabled"
+                                    wire:target="forwardMessage"
+                                    class="flex-1 px-4 py-2.5 bg-green-500 text-white rounded-xl hover:bg-green-600 font-medium transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                                    @if(empty($forwardToNumber)) disabled @endif>
+                                <svg wire:loading wire:target="forwardMessage" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                                <span wire:loading.remove wire:target="forwardMessage">Reenviar</span>
+                                <span wire:loading wire:target="forwardMessage">Enviando...</span>
+                            </button>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
