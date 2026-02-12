@@ -325,14 +325,26 @@ class Index extends Component
     #[Computed]
     public function availableUsers(): Collection
     {
-        return User::where('id', '!=', auth()->id())
-            ->orderBy('name')
+        // Incluir al usuario actual para permitir transferir entre sus propios canales
+        return User::orderBy('name')
             ->get();
     }
 
     #[Computed]
     public function allChannels(): Collection
     {
+        // Si hay un usuario seleccionado para transferir, mostrar solo sus canales
+        if ($this->transferToUserId) {
+            $targetUser = User::find($this->transferToUserId);
+            if ($targetUser) {
+                return $targetUser->channels()
+                    ->where('is_active', true)
+                    ->orderBy('name')
+                    ->get();
+            }
+        }
+        
+        // Por defecto, mostrar todos los canales activos
         return Channel::where('is_active', true)
             ->orderBy('name')
             ->get();
@@ -676,6 +688,18 @@ class Index extends Component
         $this->transferToChannelId = $this->selectedChannelId;
         $this->transferNote = '';
         $this->showTransferModal = true;
+    }
+
+    public function updatedTransferToUserId(): void
+    {
+        // Refrescar la lista de canales cuando cambia el usuario
+        unset($this->allChannels);
+        
+        // Pre-seleccionar el primer canal del usuario si existe
+        if ($this->transferToUserId) {
+            $firstChannel = $this->allChannels->first();
+            $this->transferToChannelId = $firstChannel?->id;
+        }
     }
 
     public function closeTransferModal(): void

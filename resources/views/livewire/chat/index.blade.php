@@ -826,10 +826,12 @@
                     <form wire:submit="transferChat" class="space-y-4">
                         <div>
                             <label class="block text-sm font-medium text-gray-700 mb-1">Transferir a usuario <span class="text-red-500">*</span></label>
-                            <select wire:model="transferToUserId" class="w-full px-4 py-2.5 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-blue-500">
+                            <select wire:model.live="transferToUserId" class="w-full px-4 py-2.5 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-blue-500">
                                 <option value="">Seleccionar usuario...</option>
                                 @foreach($this->availableUsers as $user)
-                                    <option value="{{ $user->id }}">{{ $user->name }}</option>
+                                    <option value="{{ $user->id }}" {{ $user->id === auth()->id() ? 'class=font-medium' : '' }}>
+                                        {{ $user->name }}{{ $user->id === auth()->id() ? ' (Yo)' : '' }}
+                                    </option>
                                 @endforeach
                             </select>
                             @error('transferToUserId') <p class="mt-1 text-sm text-red-600">{{ $message }}</p> @enderror
