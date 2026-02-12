@@ -1,5 +1,5 @@
-<div class="h-[calc(100vh-8rem)] flex flex-col overflow-hidden" 
-     x-data="{ showContactInfo: true, imageModal: { open: false, url: '' }, openImage(url) { this.imageModal.url = url; this.imageModal.open = true; }, closeImage() { this.imageModal.open = false; this.imageModal.url = ''; }, downloadImage() { const a = document.createElement('a'); a.href = this.imageModal.url; a.download = this.imageModal.url.split('/').pop() || 'imagen'; a.click(); } }"
+<div class="h-[calc(100vh-5rem)] flex flex-col overflow-hidden" 
+     x-data="{ showContactInfo: false, imageModal: { open: false, url: '' }, openImage(url) { this.imageModal.url = url; this.imageModal.open = true; }, closeImage() { this.imageModal.open = false; this.imageModal.url = ''; }, downloadImage() { const a = document.createElement('a'); a.href = this.imageModal.url; a.download = this.imageModal.url.split('/').pop() || 'imagen'; a.click(); } }"
      wire:poll.5s="refreshUnreadCounts">
     @if($this->channels->isEmpty())
         <div class="flex-1 flex items-center justify-center bg-gray-50">
@@ -44,7 +44,7 @@
 
         <div class="flex-1 flex overflow-hidden">
             <!-- Left Column -->
-            <div class="w-72 min-w-[250px] flex-shrink bg-white border-r border-gray-200 flex flex-col">
+            <div class="w-64 min-w-[240px] flex-shrink-0 bg-white border-r border-gray-200 flex flex-col">
                 <!-- Search & Filter -->
                 <div class="p-3 border-b border-gray-200 space-y-2">
                     <div class="relative">
@@ -232,7 +232,7 @@
             </div>
 
             <!-- Center Column: Messages Area -->
-            <div class="flex-1 flex flex-col bg-[#efeae2]" style="background-image: url('data:image/svg+xml,%3Csvg width=\'60\' height=\'60\' viewBox=\'0 0 60 60\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cg fill=\'none\' fill-rule=\'evenodd\'%3E%3Cg fill=\'%23d5d0c8\' fill-opacity=\'0.4\'%3E%3Cpath d=\'M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z\'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E');">
+            <div class="flex-1 min-w-0 flex flex-col bg-[#efeae2]" style="background-image: url('data:image/svg+xml,%3Csvg width=\'60\' height=\'60\' viewBox=\'0 0 60 60\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cg fill=\'none\' fill-rule=\'evenodd\'%3E%3Cg fill=\'%23d5d0c8\' fill-opacity=\'0.4\'%3E%3Cpath d=\'M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z\'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E');">
                 @if($selectedContactId && $this->selectedContact)
                     <!-- Chat Header -->
                     <div class="bg-[#f0f2f5] px-4 py-2 border-b border-gray-200 flex items-center gap-3">
@@ -803,7 +803,7 @@
                      x-transition:leave="transition ease-in duration-150"
                      x-transition:leave-start="opacity-100 translate-x-0"
                      x-transition:leave-end="opacity-0 translate-x-4"
-                     class="w-72 min-w-[250px] flex-shrink bg-white border-l border-gray-200 overflow-y-auto">
+                     class="w-64 min-w-[240px] flex-shrink-0 bg-white border-l border-gray-200 overflow-y-auto">
                     <livewire:chat.contact-info :contact="$this->selectedContact" :channel-id="$selectedChannelId" :key="'contact-info-'.$selectedContactId" />
                 </div>
             @endif

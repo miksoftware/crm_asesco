@@ -363,7 +363,7 @@
             </header>
 
             <!-- Page Content -->
-            <main class="p-6">
+            <main class="{{ $currentRoute === 'chat.index' ? 'p-2' : 'p-6' }}">
                 {{ $slot }}
             </main>
         </div>

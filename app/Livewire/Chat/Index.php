@@ -734,11 +734,34 @@ class Index extends Component
             'transferred_at' => now(),
         ]);
 
-        // Update contact
-        $contact->update([
-            'assigned_user_id' => $this->transferToUserId,
-            'channel_id' => $this->transferToChannelId,
-        ]);
+        // Check if contact already exists in the target channel
+        $existingContact = Contact::where('channel_id', $this->transferToChannelId)
+            ->where('phone_number', $contact->phone_number)
+            ->where('id', '!=', $contact->id)
+            ->first();
+
+        if ($existingContact) {
+            // Move messages to existing contact in the target channel
+            Message::where('contact_id', $contact->id)
+                ->update([
+                    'contact_id' => $existingContact->id,
+                    'channel_id' => $this->transferToChannelId,
+                ]);
+            
+            // Update the existing contact's assignment
+            $existingContact->update([
+                'assigned_user_id' => $this->transferToUserId,
+            ]);
+
+            // Delete the old contact (now has no messages)
+            $contact->delete();
+        } else {
+            // No conflict, simply move the contact to the new channel
+            $contact->update([
+                'assigned_user_id' => $this->transferToUserId,
+                'channel_id' => $this->transferToChannelId,
+            ]);
+        }
 
         $this->closeTransferModal();
         $this->selectedContactId = null;
