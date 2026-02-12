@@ -16,6 +16,8 @@ class Contact extends Model
         'assigned_user_id',
         'phone_number',
         'remote_jid',
+        'is_group',
+        'group_jid',
         'name',
         'push_name',
         'profile_picture',
@@ -27,6 +29,7 @@ class Contact extends Model
     protected $casts = [
         'labels' => 'array',
         'metadata' => 'array',
+        'is_group' => 'boolean',
     ];
 
     /**

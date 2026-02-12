@@ -114,16 +114,28 @@ class Index extends Component
 
         if ($user->hasRole('admin')) {
             return Channel::where('is_active', true)
-                ->where('status', 'connected')
                 ->orderBy('name')
                 ->get();
         }
 
         return $user->channels()
             ->where('is_active', true)
-            ->where('status', 'connected')
             ->orderBy('name')
             ->get();
+    }
+
+    /**
+     * Check if the currently selected channel is connected.
+     */
+    #[Computed]
+    public function isChannelConnected(): bool
+    {
+        if (!$this->selectedChannelId) {
+            return false;
+        }
+
+        $channel = $this->channels->firstWhere('id', $this->selectedChannelId);
+        return $channel && $channel->status === 'connected';
     }
 
     /**
@@ -170,6 +182,16 @@ class Index extends Component
                   ->whereColumn('messages.contact_id', 'contacts.id')
                   ->limit(1);
             });
+
+        // By default (not groups filter), show only individual chats
+        // When groups filter is active, show only groups
+        if ($this->quickFilter === 'groups') {
+            $query->where('is_group', true);
+        } else {
+            $query->where(function ($q) {
+                $q->where('is_group', false)->orWhereNull('is_group');
+            });
+        }
 
         // Apply search filter
         if (!empty($this->search)) {
@@ -317,7 +339,6 @@ class Index extends Component
     public function allChannels(): Collection
     {
         return Channel::where('is_active', true)
-            ->where('status', 'connected')
             ->orderBy('name')
             ->get();
     }
@@ -342,6 +363,11 @@ class Index extends Component
     {
         if (!$this->canSend) {
             $this->dispatch('toast', type: 'error', message: 'No tienes permiso para enviar mensajes');
+            return;
+        }
+
+        if (!$this->isChannelConnected) {
+            $this->dispatch('toast', type: 'error', message: 'El canal está desconectado. No se pueden enviar mensajes hasta que se reconecte.');
             return;
         }
 
@@ -375,10 +401,14 @@ class Index extends Component
         $messageService = app(MessageService::class);
 
         try {
+            // For groups, use the group JID; for individuals, use phone number
+            $recipient = $contact->is_group ? $contact->group_jid : $contact->phone_number;
+            
             $message = $messageService->sendTextMessage(
                 $this->selectedChannelId,
-                $contact->phone_number,
-                $text
+                $recipient,
+                $text,
+                $contact->is_group
             );
 
             $this->messageText = '';
@@ -403,7 +433,7 @@ class Index extends Component
         }
 
         $evolutionApi = app(EvolutionApiService::class);
-        $recipient = $contact->remote_jid ?? $contact->phone_number;
+        $recipient = $contact->is_group ? $contact->group_jid : ($contact->remote_jid ?? $contact->phone_number);
 
         try {
             $fileContent = file_get_contents($this->mediaFile->getRealPath());
@@ -447,6 +477,7 @@ class Index extends Component
                     'status' => 'sent',
                     'is_read' => true,
                     'sent_at' => now(),
+                    'sender_name' => $contact->is_group ? 'Tú' : null,
                 ]);
 
                 $this->dispatch('toast', type: 'success', message: 'Archivo enviado');
@@ -519,7 +550,7 @@ class Index extends Component
         }
 
         $evolutionApi = app(EvolutionApiService::class);
-        $recipient = $contact->remote_jid ?? $contact->phone_number;
+        $recipient = $contact->is_group ? $contact->group_jid : ($contact->remote_jid ?? $contact->phone_number);
         $caption = trim($caption ?? '');
 
         try {
@@ -553,6 +584,7 @@ class Index extends Component
                     'status' => 'sent',
                     'is_read' => true,
                     'sent_at' => now(),
+                    'sender_name' => $contact->is_group ? 'Tú' : null,
                 ]);
 
                 $this->messageText = '';
@@ -595,7 +627,7 @@ class Index extends Component
         }
 
         $evolutionApi = app(EvolutionApiService::class);
-        $recipient = $contact->remote_jid ?? $contact->phone_number;
+        $recipient = $contact->is_group ? $contact->group_jid : ($contact->remote_jid ?? $contact->phone_number);
 
         try {
             // Remove data URL prefix if present
@@ -628,6 +660,7 @@ class Index extends Component
                     'status' => 'sent',
                     'is_read' => true,
                     'sent_at' => now(),
+                    'sender_name' => $contact->is_group ? 'Tú' : null,
                 ]);
 
                 $this->dispatch('toast', type: 'success', message: 'Audio enviado');
@@ -929,7 +962,7 @@ class Index extends Component
             
             $response = $evolutionApi->sendTextMessage(
                 $channel->instance_name,
-                $contact->remote_jid ?? $contact->phone_number,
+                $contact->is_group ? $contact->group_jid : ($contact->remote_jid ?? $contact->phone_number),
                 $message->content
             );
 
@@ -1413,11 +1446,8 @@ class Index extends Component
             return false;
         }
 
-        // ONLY skip these specific types - nothing else
-        // Skip groups
-        if (str_contains($remoteJid, '@g.us')) {
-            return false;
-        }
+        // Check if this is a group message
+        $isGroupMessage = str_contains($remoteJid, '@g.us');
 
         // Skip status/broadcast messages
         if (str_contains($remoteJid, '@broadcast') || str_contains($remoteJid, 'status@')) {
@@ -1443,6 +1473,53 @@ class Index extends Component
 
         // Extract the identifier from JID
         $jidPart = explode('@', $remoteJid)[0];
+        
+        // ⭐ GROUP MESSAGE HANDLING
+        $senderName = null;
+        $senderPhone = null;
+        
+        if ($isGroupMessage) {
+            $groupJid = $remoteJid;
+            $groupId = $jidPart;
+            $groupName = $msgData['groupName'] ?? $pushName ?? null;
+            
+            // Extract sender info from participant field
+            $participant = $key['participant'] ?? null;
+            if ($participant) {
+                $participantPart = explode('@', $participant)[0];
+                $senderPhone = explode(':', $participantPart)[0];
+            }
+            $senderName = $pushName;
+            
+            $isFromMe = $key['fromMe'] ?? false;
+            if ($isFromMe) {
+                $senderName = 'Tú';
+                $senderPhone = $channel->phone_number;
+            }
+            
+            // Find or create group contact
+            $contact = Contact::where('channel_id', $channel->id)
+                ->where('is_group', true)
+                ->where('group_jid', $groupJid)
+                ->first();
+            
+            if (!$contact) {
+                $contact = Contact::create([
+                    'channel_id' => $channel->id,
+                    'phone_number' => $groupId,
+                    'remote_jid' => $groupJid,
+                    'is_group' => true,
+                    'group_jid' => $groupJid,
+                    'name' => $groupName,
+                    'push_name' => $groupName,
+                ]);
+            } else {
+                if ($groupName && !$contact->name) {
+                    $contact->update(['name' => $groupName, 'push_name' => $groupName]);
+                }
+            }
+        } else {
+            // ⭐ INDIVIDUAL MESSAGE HANDLING (existing LID logic)
         
         // Check if this is a LID (contains @lid or has : in the identifier)
         $isLid = str_contains($remoteJid, '@lid') || str_contains($jidPart, ':');
@@ -1547,6 +1624,7 @@ class Index extends Component
                 $contact->update($updates);
             }
         }
+        } // End of individual message handling (else block)
 
         // Extract message content and type
         $messageContent = $msgData['message'] ?? [];
@@ -1635,6 +1713,8 @@ class Index extends Component
             'status' => $status,
             'media_url' => null,
             'media_mime_type' => $mediaMimeType,
+            'sender_name' => $senderName,
+            'sender_phone' => $senderPhone,
             'sent_at' => $sentAt,
             'is_read' => true,
         ]);
@@ -1719,7 +1799,7 @@ class Index extends Component
         $evolutionApi = app(EvolutionApiService::class);
 
         try {
-            $remoteJid = $contact->remote_jid ?? $contact->phone_number . '@s.whatsapp.net';
+            $remoteJid = $contact->is_group ? $contact->group_jid : ($contact->remote_jid ?? $contact->phone_number . '@s.whatsapp.net');
             $mediaResult = $evolutionApi->getMediaBase64($channel->instance_name, $message->message_id, $remoteJid);
             
             if ($mediaResult['success'] && !empty($mediaResult['data']['base64'])) {
@@ -1741,13 +1821,23 @@ class Index extends Component
     }
 
     /**
-     * Refresh unread counts - called by polling.
-     * This ensures all users see updated counts when any agent reads messages.
+     * Refresh unread counts and messages - called by polling.
+     * This ensures all users see updated counts and new messages in real-time.
      */
     public function refreshUnreadCounts(): void
     {
         unset($this->channelUnreadCounts);
         unset($this->conversations);
+        
+        // Refresh channels to pick up connection status changes
+        unset($this->channels);
+        unset($this->isChannelConnected);
+        
+        // Also refresh messages for the active conversation so new incoming 
+        // messages (including media) appear automatically without manual sync
+        if ($this->selectedContactId !== null && $this->selectedChannelId !== null) {
+            unset($this->messages);
+        }
     }
 
     public function render()

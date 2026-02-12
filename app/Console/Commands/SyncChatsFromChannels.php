@@ -77,35 +77,69 @@ class SyncChatsFromChannels extends Command
             foreach ($chats as $chat) {
                 $remoteJid = $chat['id'] ?? $chat['remoteJid'] ?? null;
                 
-                if (!$remoteJid || !str_ends_with($remoteJid, '@s.whatsapp.net')) {
+                if (!$remoteJid) {
                     continue;
                 }
 
-                $phoneNumber = str_replace('@s.whatsapp.net', '', $remoteJid);
-                
-                // Validar que sea un número real
-                if (!preg_match('/^[1-9]\d{9,14}$/', $phoneNumber)) {
+                $isGroup = str_ends_with($remoteJid, '@g.us');
+                $isIndividual = str_ends_with($remoteJid, '@s.whatsapp.net');
+
+                if (!$isGroup && !$isIndividual) {
                     continue;
                 }
 
-                $contact = Contact::firstOrCreate(
-                    [
-                        'channel_id' => $channel->id,
-                        'phone_number' => $phoneNumber,
-                    ],
-                    [
-                        'remote_jid' => $remoteJid,
-                        'name' => $chat['name'] ?? null,
-                        'push_name' => $chat['pushName'] ?? $chat['name'] ?? null,
-                    ]
-                );
+                if ($isGroup) {
+                    // Group chat
+                    $groupId = explode('@', $remoteJid)[0];
+                    $groupName = $chat['name'] ?? $chat['pushName'] ?? $chat['subject'] ?? null;
 
-                if ($contact->wasRecentlyCreated) {
-                    $newContacts++;
+                    $contact = Contact::where('channel_id', $channel->id)
+                        ->where('is_group', true)
+                        ->where('group_jid', $remoteJid)
+                        ->first();
+
+                    if (!$contact) {
+                        $contact = Contact::create([
+                            'channel_id' => $channel->id,
+                            'phone_number' => $groupId,
+                            'remote_jid' => $remoteJid,
+                            'is_group' => true,
+                            'group_jid' => $remoteJid,
+                            'name' => $groupName,
+                            'push_name' => $groupName,
+                        ]);
+                        $newContacts++;
+                    } else {
+                        if ($groupName && !$contact->name) {
+                            $contact->update(['name' => $groupName, 'push_name' => $groupName]);
+                        }
+                    }
                 } else {
-                    // Actualizar remote_jid si no lo tiene
-                    if (!$contact->remote_jid) {
-                        $contact->update(['remote_jid' => $remoteJid]);
+                    // Individual chat
+                    $phoneNumber = str_replace('@s.whatsapp.net', '', $remoteJid);
+                    
+                    if (!preg_match('/^[1-9]\d{9,14}$/', $phoneNumber)) {
+                        continue;
+                    }
+
+                    $contact = Contact::firstOrCreate(
+                        [
+                            'channel_id' => $channel->id,
+                            'phone_number' => $phoneNumber,
+                        ],
+                        [
+                            'remote_jid' => $remoteJid,
+                            'name' => $chat['name'] ?? null,
+                            'push_name' => $chat['pushName'] ?? $chat['name'] ?? null,
+                        ]
+                    );
+
+                    if ($contact->wasRecentlyCreated) {
+                        $newContacts++;
+                    } else {
+                        if (!$contact->remote_jid) {
+                            $contact->update(['remote_jid' => $remoteJid]);
+                        }
                     }
                 }
 
@@ -175,6 +209,24 @@ class SyncChatsFromChannels extends Command
                     );
                 }
 
+                // Extract group sender info if this is a group message
+                $senderName = null;
+                $senderPhone = null;
+                $isGroup = $contact->is_group ?? false;
+                
+                if ($isGroup) {
+                    $participant = $msg['key']['participant'] ?? null;
+                    if ($participant) {
+                        $participantPart = explode('@', $participant)[0];
+                        $senderPhone = explode(':', $participantPart)[0];
+                    }
+                    $senderName = $msg['pushName'] ?? null;
+                    if ($fromMe) {
+                        $senderName = 'Tú';
+                        $senderPhone = $channel->phone_number;
+                    }
+                }
+
                 Message::create([
                     'contact_id' => $contact->id,
                     'channel_id' => $channel->id,
@@ -184,6 +236,8 @@ class SyncChatsFromChannels extends Command
                     'content' => $content,
                     'media_url' => $mediaUrl,
                     'media_mime_type' => $mediaMimeType,
+                    'sender_name' => $senderName,
+                    'sender_phone' => $senderPhone,
                     'status' => $fromMe ? 'sent' : 'delivered',
                     'is_read' => $fromMe,
                     'sent_at' => $sentAt,

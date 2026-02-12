@@ -1,6 +1,6 @@
 <div class="h-[calc(100vh-8rem)] flex flex-col" 
-     x-data="{ showContactInfo: true }"
-     wire:poll.10s="refreshUnreadCounts">
+     x-data="{ showContactInfo: true, imageModal: { open: false, url: '' }, openImage(url) { this.imageModal.url = url; this.imageModal.open = true; }, closeImage() { this.imageModal.open = false; this.imageModal.url = ''; }, downloadImage() { const a = document.createElement('a'); a.href = this.imageModal.url; a.download = this.imageModal.url.split('/').pop() || 'imagen'; a.click(); } }"
+     wire:poll.5s="refreshUnreadCounts">
     @if($this->channels->isEmpty())
         <div class="flex-1 flex items-center justify-center bg-gray-50">
             <div class="text-center">
@@ -24,8 +24,13 @@
                                       ? 'border-green-500 text-green-600 bg-green-50' 
                                       : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50' }}">
                         <span class="flex items-center justify-center gap-2">
-                            <span class="w-2 h-2 rounded-full bg-green-500"></span>
+                            <span class="w-2 h-2 rounded-full {{ $channel->status === 'connected' ? 'bg-green-500' : ($channel->status === 'connecting' ? 'bg-yellow-500 animate-pulse' : 'bg-red-500') }}" title="{{ $channel->status_label }}"></span>
                             {{ $channel->name }}
+                            @if($channel->status !== 'connected')
+                                <span class="text-[10px] font-normal {{ $channel->status === 'connecting' ? 'text-yellow-600' : 'text-red-500' }}">
+                                    ({{ $channel->status_label }})
+                                </span>
+                            @endif
                             @if($channelUnread > 0)
                                 <span class="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 text-xs font-bold text-white bg-green-500 rounded-full">
                                     {{ $channelUnread > 99 ? '99+' : $channelUnread }}
@@ -64,6 +69,11 @@
                                 class="px-3 py-1.5 text-xs font-medium rounded-full whitespace-nowrap transition-colors
                                        {{ $quickFilter === 'unread' ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200' }}">
                             No leídos
+                        </button>
+                        <button wire:click="setQuickFilter('groups')"
+                                class="px-3 py-1.5 text-xs font-medium rounded-full whitespace-nowrap transition-colors
+                                       {{ $quickFilter === 'groups' ? 'bg-green-700 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200' }}">
+                            👥 Grupos
                         </button>
                         <button wire:click="setQuickFilter('mine')"
                                 class="px-3 py-1.5 text-xs font-medium rounded-full whitespace-nowrap transition-colors
@@ -138,9 +148,13 @@
                                 </button>
                             @endif
                             <div wire:click="selectConversation({{ $contact->id }})" class="flex items-center gap-3 flex-1 min-w-0">
-                                <div class="w-12 h-12 rounded-full bg-gray-200 flex items-center justify-center flex-shrink-0 overflow-hidden">
+                                <div class="w-12 h-12 rounded-full {{ $contact->is_group ? 'bg-green-100' : 'bg-gray-200' }} flex items-center justify-center flex-shrink-0 overflow-hidden relative">
                                     @if($contact->profile_picture)
                                         <img src="{{ $contact->profile_picture }}" alt="" class="w-full h-full object-cover">
+                                    @elseif($contact->is_group)
+                                        <svg class="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/>
+                                        </svg>
                                     @else
                                         <span class="text-lg font-semibold text-gray-500">{{ strtoupper(substr($contact->display_name, 0, 1)) }}</span>
                                     @endif
@@ -174,6 +188,9 @@
                                                     @else
                                                         <svg class="w-4 h-4 inline text-gray-400" fill="currentColor" viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/></svg>
                                                     @endif
+                                                @endif
+                                                @if($contact->is_group && $contact->last_message->sender_name)
+                                                    <span class="font-medium text-gray-600">{{ Str::before($contact->last_message->sender_name, ' ') }}:</span>
                                                 @endif
                                             {{ Str::limit($contact->last_message->content ?? '[Media]', 25) }}
                                         @else
@@ -219,16 +236,26 @@
                 @if($selectedContactId && $this->selectedContact)
                     <!-- Chat Header -->
                     <div class="bg-[#f0f2f5] px-4 py-2 border-b border-gray-200 flex items-center gap-3">
-                        <div class="w-10 h-10 rounded-full bg-gray-300 flex items-center justify-center overflow-hidden">
+                        <div class="w-10 h-10 rounded-full {{ $this->selectedContact->is_group ? 'bg-green-100' : 'bg-gray-300' }} flex items-center justify-center overflow-hidden">
                             @if($this->selectedContact->profile_picture)
                                 <img src="{{ $this->selectedContact->profile_picture }}" alt="" class="w-full h-full object-cover">
+                            @elseif($this->selectedContact->is_group)
+                                <svg class="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/>
+                                </svg>
                             @else
                                 <span class="text-lg font-semibold text-gray-500">{{ strtoupper(substr($this->selectedContact->display_name, 0, 1)) }}</span>
                             @endif
                         </div>
                         <div class="flex-1">
                             <h3 class="font-semibold text-gray-900">{{ $this->selectedContact->display_name }}</h3>
-                            <p class="text-xs text-gray-500">{{ $this->selectedContact->phone_number }}</p>
+                            <p class="text-xs text-gray-500">
+                                @if($this->selectedContact->is_group)
+                                    Grupo
+                                @else
+                                    {{ $this->selectedContact->phone_number }}
+                                @endif
+                            </p>
                         </div>
                         <!-- Transfer Button -->
                         <button wire:click="openTransferModal" class="p-2 text-gray-500 hover:bg-gray-200 rounded-full transition-colors" title="Transferir chat">
@@ -264,7 +291,7 @@
                              },
                              checkNewMessages() { const c = @js(count($this->messages)); if (c > this.lastMessageCount && !this.userScrolledUp) this.scrollToBottom(); this.lastMessageCount = c; }
                          }"
-                         x-init="scrollToBottom()" @scroll.debounce.100ms="handleScroll()" x-effect="checkNewMessages()" wire:poll.visible.5s>
+                         x-init="scrollToBottom()" @scroll.debounce.100ms="handleScroll()" x-effect="checkNewMessages()" wire:poll.visible.3s>
                         
                         @if($hasMoreMessages)
                             <div class="text-center mb-2">
@@ -290,13 +317,25 @@
                                     @if($message->direction === 'outgoing' && $message->user)
                                         <p class="text-[11px] font-medium text-orange-600 mb-0.5">{{ $message->user->name }}</p>
                                     @endif
+                                    @if($this->selectedContact?->is_group && $message->direction === 'incoming' && $message->sender_name)
+                                        @php
+                                            $senderColors = ['text-blue-600', 'text-green-600', 'text-purple-600', 'text-red-600', 'text-teal-600', 'text-indigo-600', 'text-pink-600', 'text-amber-600'];
+                                            $colorIndex = crc32($message->sender_phone ?? $message->sender_name) % count($senderColors);
+                                        @endphp
+                                        <p class="text-[11px] font-semibold {{ $senderColors[abs($colorIndex)] }} mb-0.5">
+                                            {{ $message->sender_name }}
+                                            @if($message->sender_phone)
+                                                <span class="font-normal text-gray-400 ml-1">~{{ $message->sender_phone }}</span>
+                                            @endif
+                                        </p>
+                                    @endif
                                     @if($message->type === 'text')
                                         <p class="text-sm text-gray-800 whitespace-pre-wrap break-words pr-14">{{ $message->content ?: '[Mensaje vacío]' }}</p>
                                     @elseif($message->type === 'image')
                                         @if($message->media_url)
-                                            <a href="{{ $message->media_url }}" target="_blank" class="block">
-                                                <img src="{{ $message->media_url }}" alt="Imagen" class="max-w-full max-h-64 rounded-lg cursor-pointer" loading="lazy">
-                                            </a>
+                                            <div class="block cursor-pointer" @click="openImage('{{ $message->media_url }}')">
+                                                <img src="{{ $message->media_url }}" alt="Imagen" class="max-w-full max-h-64 rounded-lg cursor-pointer hover:opacity-90 transition-opacity" loading="lazy">
+                                            </div>
                                         @else
                                             <button wire:click="loadMessageMedia({{ $message->id }})" 
                                                     wire:loading.attr="disabled"
@@ -365,9 +404,9 @@
                                         </div>
                                     @elseif($message->type === 'sticker')
                                         @if($message->media_url)
-                                            <a href="{{ $message->media_url }}" target="_blank" class="block">
-                                                <img src="{{ $message->media_url }}" alt="Sticker" class="max-w-[150px] max-h-[150px] rounded-lg cursor-pointer" loading="lazy">
-                                            </a>
+                                            <div class="block cursor-pointer" @click="openImage('{{ $message->media_url }}')">
+                                                <img src="{{ $message->media_url }}" alt="Sticker" class="max-w-[150px] max-h-[150px] rounded-lg cursor-pointer hover:opacity-90 transition-opacity" loading="lazy">
+                                            </div>
                                         @else
                                             <button wire:click="loadMessageMedia({{ $message->id }})" 
                                                     wire:loading.attr="disabled"
@@ -421,7 +460,14 @@
 
                     <!-- Message Input Area -->
                     <div class="bg-[#f0f2f5] px-4 py-3 border-t border-gray-200">
-                        @if($canSend)
+                        @if(!$this->isChannelConnected)
+                            <div class="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+                                <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"/>
+                                </svg>
+                                <span>Canal desconectado. Puedes ver los chats pero no enviar mensajes. Ve a <strong>Canales</strong> para reconectar.</span>
+                            </div>
+                        @elseif($canSend)
                             <!-- Media Preview -->
                             @if($mediaPreview)
                                 <div class="mb-3 p-3 bg-white rounded-lg border border-gray-200 flex items-center gap-3">
@@ -992,6 +1038,49 @@
                         </div>
                     </div>
                 </div>
+            </div>
+        </div>
+    @endteleport
+
+    <!-- Image Preview Modal -->
+    @teleport('body')
+        <div x-show="imageModal.open" 
+             x-cloak
+             x-transition:enter="transition ease-out duration-200"
+             x-transition:enter-start="opacity-0"
+             x-transition:enter-end="opacity-100"
+             x-transition:leave="transition ease-in duration-150"
+             x-transition:leave-start="opacity-100"
+             x-transition:leave-end="opacity-0"
+             class="fixed inset-0 z-[60] flex items-center justify-center p-4"
+             @keydown.escape.window="closeImage()">
+            <!-- Backdrop -->
+            <div class="absolute inset-0 bg-black/80" @click="closeImage()"></div>
+            <!-- Modal Content -->
+            <div class="relative z-10 max-w-[90vw] max-h-[90vh] flex flex-col items-center">
+                <!-- Top Bar -->
+                <div class="flex items-center gap-3 mb-3">
+                    <!-- Download Button -->
+                    <button @click="downloadImage()" 
+                            class="flex items-center gap-2 px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-lg backdrop-blur-sm transition-colors"
+                            title="Descargar imagen">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                        </svg>
+                        <span class="text-sm font-medium">Descargar</span>
+                    </button>
+                    <!-- Close Button -->
+                    <button @click="closeImage()" 
+                            class="flex items-center gap-2 px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-lg backdrop-blur-sm transition-colors"
+                            title="Cerrar">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                        </svg>
+                        <span class="text-sm font-medium">Cerrar</span>
+                    </button>
+                </div>
+                <!-- Image -->
+                <img :src="imageModal.url" alt="Vista previa" class="max-w-full max-h-[80vh] rounded-lg shadow-2xl object-contain">
             </div>
         </div>
     @endteleport

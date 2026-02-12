@@ -19,6 +19,8 @@ class Message extends Model
         'content',
         'media_url',
         'media_mime_type',
+        'sender_name',
+        'sender_phone',
         'status',
         'is_read',
         'metadata',

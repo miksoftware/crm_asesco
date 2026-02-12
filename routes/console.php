@@ -8,9 +8,9 @@ Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
 })->purpose('Display an inspiring quote');
 
-// Sincronizar chats cada 5 minutos
+// Sincronizar chats cada 2 minutos (respaldo si el webhook falla)
 Schedule::command('chats:sync --limit=50')
-    ->everyFiveMinutes()
+    ->everyTwoMinutes()
     ->withoutOverlapping()
     ->runInBackground();
 

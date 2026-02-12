@@ -127,17 +127,13 @@ class WebhookController extends Controller
             return response()->json(['status' => 'skipped', 'reason' => 'no_message_data']);
         }
 
-        // Skip outgoing messages (fromMe = true)
-        if (($data['key']['fromMe'] ?? false) === true) {
+        // Skip outgoing messages (fromMe = true) — except in groups where we want to track our own messages
+        $remoteJid = $data['key']['remoteJid'] ?? '';
+        $isGroupMessage = str_contains($remoteJid, '@g.us');
+        
+        if (($data['key']['fromMe'] ?? false) === true && !$isGroupMessage) {
             Log::debug('Skipping outgoing message webhook');
             return response()->json(['status' => 'skipped', 'reason' => 'outgoing_message']);
-        }
-
-        // Skip group messages
-        $remoteJid = $data['key']['remoteJid'] ?? '';
-        if (str_contains($remoteJid, '@g.us')) {
-            Log::debug('Skipping group message webhook');
-            return response()->json(['status' => 'skipped', 'reason' => 'group_message']);
         }
 
         // Skip status/broadcast messages

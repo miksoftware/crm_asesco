@@ -316,8 +316,14 @@ class Index extends Component
             $this->dispatch('toast', type: 'error', message: 'No tienes permiso para eliminar canales');
             return;
         }
+
+        $channel = Channel::find($id);
+        $contactCount = $channel ? $channel->contacts()->count() : 0;
+        $messageCount = $channel ? $channel->messages()->count() : 0;
+
+        $warning = "⚠️ ATENCIÓN: Se eliminarán permanentemente {$contactCount} contactos y {$messageCount} mensajes asociados a este canal. Esta acción NO se puede deshacer. Si solo necesitas reconectar, usa el botón Conectar en vez de eliminar.";
         
-        $this->dispatch('confirm-delete', id: $id, message: 'El canal será eliminado permanentemente');
+        $this->dispatch('confirm-delete', id: $id, message: $warning);
     }
 
     #[On('deleteConfirmed')]

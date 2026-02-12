@@ -17,9 +17,9 @@ class MessageService
 
     /**
      * Send a text message via Evolution API.
-     * Requirements: 4.1, 4.2
+     * Supports both individual and group messages.
      */
-    public function sendTextMessage(int $channelId, string $phoneNumber, string $text): Message
+    public function sendTextMessage(int $channelId, string $recipient, string $text, bool $isGroup = false): Message
     {
         $channel = Channel::findOrFail($channelId);
         
@@ -28,19 +28,38 @@ class MessageService
             throw new \Exception("El canal '{$channel->name}' no está conectado. Estado actual: {$channel->status}");
         }
         
-        // Find or create contact
-        $contact = Contact::firstOrCreate(
-            [
-                'channel_id' => $channelId,
-                'phone_number' => $this->normalizePhoneNumber($phoneNumber),
-            ],
-            [
-                'name' => null,
-                'push_name' => null,
-                'labels' => [],
-                'metadata' => [],
-            ]
-        );
+        if ($isGroup) {
+            // For groups, find the contact by group_jid
+            $contact = Contact::where('channel_id', $channelId)
+                ->where('is_group', true)
+                ->where('group_jid', $recipient)
+                ->firstOrFail();
+            
+            // The recipient for Evolution API is the group JID itself
+            $apiRecipient = $recipient;
+        } else {
+            // Find or create individual contact
+            $contact = Contact::firstOrCreate(
+                [
+                    'channel_id' => $channelId,
+                    'phone_number' => $this->normalizePhoneNumber($recipient),
+                ],
+                [
+                    'name' => null,
+                    'push_name' => null,
+                    'labels' => [],
+                    'metadata' => [],
+                ]
+            );
+            
+            // Use remote_jid if available (for LID contacts), otherwise use phone number
+            $apiRecipient = $contact->remote_jid ?? $recipient;
+            
+            // If remote_jid doesn't contain @, it's a phone number, format it
+            if ($apiRecipient && !str_contains($apiRecipient, '@')) {
+                $apiRecipient = $this->normalizePhoneNumber($apiRecipient);
+            }
+        }
 
         // Create message with pending status
         $message = Message::create([
@@ -50,37 +69,31 @@ class MessageService
             'direction' => 'outgoing',
             'type' => 'text',
             'content' => $text,
+            'sender_name' => $isGroup ? 'Tú' : null,
+            'sender_phone' => $isGroup ? $channel->phone_number : null,
             'status' => 'pending',
             'is_read' => true,
             'sent_at' => now(),
         ]);
 
         try {
-            // Use remote_jid if available (for LID contacts), otherwise use phone number
-            $recipient = $contact->remote_jid ?? $phoneNumber;
-            
-            // If remote_jid doesn't contain @, it's a phone number, format it
-            if ($recipient && !str_contains($recipient, '@')) {
-                $recipient = $this->normalizePhoneNumber($recipient);
-            }
-
             Log::info('Sending message via Evolution API', [
                 'channel' => $channel->instance_name,
-                'recipient' => $recipient,
-                'phone_number' => $phoneNumber,
+                'recipient' => $apiRecipient,
+                'is_group' => $isGroup,
                 'remote_jid' => $contact->remote_jid,
             ]);
 
             // Send via Evolution API
             $response = $this->evolutionApi->sendTextMessage(
                 $channel->instance_name,
-                $recipient,
+                $apiRecipient,
                 $text
             );
 
             Log::info('Evolution API sendTextMessage response', [
                 'channel' => $channel->instance_name,
-                'recipient' => $recipient,
+                'recipient' => $apiRecipient,
                 'response' => $response,
             ]);
 
@@ -95,7 +108,7 @@ class MessageService
                 $message->update(['status' => 'failed']);
                 Log::error('Failed to send message via Evolution API', [
                     'channel_id' => $channelId,
-                    'phone_number' => $phoneNumber,
+                    'recipient' => $apiRecipient,
                     'error' => $errorMsg,
                     'full_response' => $response,
                 ]);
@@ -105,7 +118,7 @@ class MessageService
             $message->update(['status' => 'failed']);
             Log::error('Exception sending message via Evolution API', [
                 'channel_id' => $channelId,
-                'phone_number' => $phoneNumber,
+                'recipient' => $apiRecipient,
                 'exception' => $e->getMessage(),
             ]);
             throw $e;
@@ -134,53 +147,132 @@ class MessageService
         $remoteJidAlt = $data['key']['remoteJidAlt'] ?? null;
         $messageId = $data['key']['id'] ?? null;
         $pushName = $data['pushName'] ?? null;
+        $isFromMe = ($data['key']['fromMe'] ?? false) === true;
         
-        // ⭐ PRIORITY: Use remoteJid first, but check remoteJidAlt for real phone
-        $phoneNumber = null;
-        $primaryJid = $remoteJid;
+        // ⭐ GROUP MESSAGE HANDLING
+        $isGroupMessage = str_contains($remoteJid, '@g.us');
+        $senderName = null;
+        $senderPhone = null;
         
-        // Extract from primary JID
-        $jidPart = explode('@', $remoteJid)[0];
-        $cleanJidPart = explode(':', $jidPart)[0];
-        $isRealPhone = preg_match('/^[1-9]\d{9,14}$/', $cleanJidPart);
-        
-        if ($isRealPhone) {
-            $phoneNumber = $cleanJidPart;
-        } elseif ($remoteJidAlt) {
-            // Primary JID is LID, check alternative
-            $altJidPart = explode('@', $remoteJidAlt)[0];
-            $cleanAltPart = explode(':', $altJidPart)[0];
-            $isAltRealPhone = preg_match('/^[1-9]\d{9,14}$/', $cleanAltPart);
+        if ($isGroupMessage) {
+            // For groups, remoteJid is the group JID, participant is the sender
+            $participant = $data['key']['participant'] ?? null;
             
-            if ($isAltRealPhone) {
-                $phoneNumber = $cleanAltPart;
-                Log::info('Using remoteJidAlt for phone number', [
+            // Extract sender info
+            if ($participant) {
+                $participantPart = explode('@', $participant)[0];
+                $senderPhone = explode(':', $participantPart)[0];
+            }
+            $senderName = $pushName; // pushName is the sender's name in groups
+            
+            // For fromMe messages in groups, mark the sender as "Tú"
+            if ($isFromMe) {
+                $senderName = 'Tú';
+                // Get our own phone from the channel
+                $senderPhone = $channel->phone_number;
+            }
+            
+            $groupJid = $remoteJid;
+            $groupName = $data['groupName'] ?? $data['pushName'] ?? null;
+            
+            // Find or create group contact
+            $contact = Contact::where('channel_id', $channel->id)
+                ->where('is_group', true)
+                ->where('group_jid', $groupJid)
+                ->first();
+            
+            if (!$contact) {
+                // Use the group JID part as phone_number placeholder (unique per group)
+                $groupId = explode('@', $groupJid)[0];
+                $contact = Contact::create([
+                    'channel_id' => $channel->id,
+                    'phone_number' => $groupId,
+                    'remote_jid' => $groupJid,
+                    'is_group' => true,
+                    'group_jid' => $groupJid,
+                    'push_name' => $groupName,
+                    'name' => $groupName,
+                    'labels' => [],
+                    'metadata' => [],
+                ]);
+            } else {
+                // Update group name if available
+                if ($groupName && !$contact->name) {
+                    $contact->update(['name' => $groupName, 'push_name' => $groupName]);
+                }
+            }
+        } else {
+            // ⭐ INDIVIDUAL MESSAGE HANDLING (existing logic)
+            $phoneNumber = null;
+            
+            // Extract from primary JID
+            $jidPart = explode('@', $remoteJid)[0];
+            $cleanJidPart = explode(':', $jidPart)[0];
+            $isRealPhone = preg_match('/^[1-9]\d{9,14}$/', $cleanJidPart);
+            
+            if ($isRealPhone) {
+                $phoneNumber = $cleanJidPart;
+            } elseif ($remoteJidAlt) {
+                $altJidPart = explode('@', $remoteJidAlt)[0];
+                $cleanAltPart = explode(':', $altJidPart)[0];
+                $isAltRealPhone = preg_match('/^[1-9]\d{9,14}$/', $cleanAltPart);
+                
+                if ($isAltRealPhone) {
+                    $phoneNumber = $cleanAltPart;
+                    Log::info('Using remoteJidAlt for phone number', [
+                        'remoteJid' => $remoteJid,
+                        'remoteJidAlt' => $remoteJidAlt,
+                        'phone' => $phoneNumber,
+                    ]);
+                }
+            }
+            
+            if (!$phoneNumber) {
+                $phoneNumber = \App\Models\LidMapping::findPhoneByLid($cleanJidPart);
+                if ($phoneNumber) {
+                    Log::info('Resolved LID from mapping table', [
+                        'lid' => $cleanJidPart,
+                        'phone' => $phoneNumber,
+                    ]);
+                }
+            }
+            
+            if (!$phoneNumber) {
+                $phoneNumber = $cleanJidPart;
+                Log::warning('Could not resolve real phone number', [
                     'remoteJid' => $remoteJid,
                     'remoteJidAlt' => $remoteJidAlt,
-                    'phone' => $phoneNumber,
+                    'using' => $phoneNumber,
                 ]);
             }
-        }
-        
-        // If still no phone, try LID mapping table
-        if (!$phoneNumber) {
-            $phoneNumber = \App\Models\LidMapping::findPhoneByLid($cleanJidPart);
-            if ($phoneNumber) {
-                Log::info('Resolved LID from mapping table', [
-                    'lid' => $cleanJidPart,
-                    'phone' => $phoneNumber,
+            
+            $standardJid = $phoneNumber . '@s.whatsapp.net';
+            
+            $contact = Contact::where('channel_id', $channel->id)
+                ->where('phone_number', $phoneNumber)
+                ->first();
+
+            if (!$contact) {
+                $contact = Contact::create([
+                    'channel_id' => $channel->id,
+                    'phone_number' => $phoneNumber,
+                    'remote_jid' => $standardJid,
+                    'push_name' => $pushName,
+                    'labels' => [],
+                    'metadata' => [],
                 ]);
+            } else {
+                $updates = [];
+                if ($contact->remote_jid !== $standardJid) {
+                    $updates['remote_jid'] = $standardJid;
+                }
+                if ($pushName && $contact->push_name !== $pushName) {
+                    $updates['push_name'] = $pushName;
+                }
+                if (!empty($updates)) {
+                    $contact->update($updates);
+                }
             }
-        }
-        
-        // Last resort: use whatever we have
-        if (!$phoneNumber) {
-            $phoneNumber = $cleanJidPart;
-            Log::warning('Could not resolve real phone number', [
-                'remoteJid' => $remoteJid,
-                'remoteJidAlt' => $remoteJidAlt,
-                'using' => $phoneNumber,
-            ]);
         }
         
         // Normalize message data (unwrap viewOnce messages, etc.)
@@ -194,7 +286,6 @@ class MessageService
         
         // For media messages, try to get base64 and save locally
         if (in_array($messageType, ['image', 'video', 'audio', 'document', 'sticker']) && $messageId) {
-            // Try inline base64 from webhook first (when webhookBase64 is enabled in Evolution API)
             $inlineBase64 = $data['message']['base64'] ?? null;
             
             $localMediaUrl = $this->downloadAndSaveMedia(
@@ -202,37 +293,6 @@ class MessageService
             );
             if ($localMediaUrl) {
                 $mediaUrl = $localMediaUrl;
-            }
-        }
-        
-        // Standard JID format for sending messages
-        $standardJid = $phoneNumber . '@s.whatsapp.net';
-        
-        // Find or create contact - search by phone number to unify LID and regular contacts
-        $contact = Contact::where('channel_id', $channel->id)
-            ->where('phone_number', $phoneNumber)
-            ->first();
-
-        if (!$contact) {
-            $contact = Contact::create([
-                'channel_id' => $channel->id,
-                'phone_number' => $phoneNumber,
-                'remote_jid' => $standardJid,
-                'push_name' => $pushName,
-                'labels' => [],
-                'metadata' => [],
-            ]);
-        } else {
-            // Update remote_jid to standard format and push_name if needed
-            $updates = [];
-            if ($contact->remote_jid !== $standardJid) {
-                $updates['remote_jid'] = $standardJid;
-            }
-            if ($pushName && $contact->push_name !== $pushName) {
-                $updates['push_name'] = $pushName;
-            }
-            if (!empty($updates)) {
-                $contact->update($updates);
             }
         }
         
@@ -245,8 +305,7 @@ class MessageService
             return $existingMessage;
         }
         
-        // Parse timestamp - Evolution API sends Unix timestamp in UTC
-        // Convert to app timezone (America/Bogota)
+        // Parse timestamp
         $sentAt = now();
         if (isset($data['messageTimestamp'])) {
             $sentAt = \Carbon\Carbon::createFromTimestamp(
@@ -255,18 +314,23 @@ class MessageService
             )->setTimezone(config('app.timezone'));
         }
 
+        // Determine direction for group messages
+        $direction = ($isGroupMessage && $isFromMe) ? 'outgoing' : ($isGroupMessage ? 'incoming' : 'incoming');
+
         // Create message
         $message = Message::create([
             'contact_id' => $contact->id,
             'channel_id' => $channel->id,
             'message_id' => $messageId,
-            'direction' => 'incoming',
+            'direction' => $direction,
             'type' => $messageType,
             'content' => $content,
             'media_url' => $mediaUrl,
             'media_mime_type' => $mediaMimeType,
+            'sender_name' => $senderName,
+            'sender_phone' => $senderPhone,
             'status' => 'delivered',
-            'is_read' => false,
+            'is_read' => $isFromMe,
             'metadata' => $data,
             'sent_at' => $sentAt,
         ]);
