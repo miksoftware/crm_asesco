@@ -1,4 +1,4 @@
-<div class="h-[calc(100vh-8rem)] flex flex-col" 
+<div class="h-[calc(100vh-8rem)] flex flex-col overflow-hidden" 
      x-data="{ showContactInfo: true, imageModal: { open: false, url: '' }, openImage(url) { this.imageModal.url = url; this.imageModal.open = true; }, closeImage() { this.imageModal.open = false; this.imageModal.url = ''; }, downloadImage() { const a = document.createElement('a'); a.href = this.imageModal.url; a.download = this.imageModal.url.split('/').pop() || 'imagen'; a.click(); } }"
      wire:poll.5s="refreshUnreadCounts">
     @if($this->channels->isEmpty())
@@ -13,26 +13,26 @@
         </div>
     @else
         <!-- Channel Tabs - Full Width Top Bar -->
-        <div class="bg-white border-b-2 border-gray-300 flex-shrink-0">
-            <div class="flex">
+        <div class="bg-white border-b-2 border-gray-300 flex-shrink-0 overflow-x-auto">
+            <div class="flex min-w-max">
                 @foreach($this->channels as $channel)
                     @php $channelUnread = $this->getChannelUnreadCount($channel->id); @endphp
                     <button wire:click="selectChannel({{ $channel->id }})"
                             wire:key="channel-tab-{{ $channel->id }}"
-                            class="flex-1 px-4 py-3 text-sm font-medium border-b-2 -mb-[2px] transition-colors whitespace-nowrap
+                            class="px-3 py-2.5 text-xs font-medium border-b-2 -mb-[2px] transition-colors whitespace-nowrap
                                    {{ $selectedChannelId === $channel->id 
                                       ? 'border-green-500 text-green-600 bg-green-50' 
                                       : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50' }}">
-                        <span class="flex items-center justify-center gap-2">
-                            <span class="w-2 h-2 rounded-full {{ $channel->status === 'connected' ? 'bg-green-500' : ($channel->status === 'connecting' ? 'bg-yellow-500 animate-pulse' : 'bg-red-500') }}" title="{{ $channel->status_label }}"></span>
-                            {{ $channel->name }}
+                        <span class="flex items-center justify-center gap-1.5">
+                            <span class="w-2 h-2 rounded-full flex-shrink-0 {{ $channel->status === 'connected' ? 'bg-green-500' : ($channel->status === 'connecting' ? 'bg-yellow-500 animate-pulse' : 'bg-red-500') }}" title="{{ $channel->status_label }}"></span>
+                            <span class="truncate max-w-[100px]">{{ $channel->name }}</span>
                             @if($channel->status !== 'connected')
-                                <span class="text-[10px] font-normal {{ $channel->status === 'connecting' ? 'text-yellow-600' : 'text-red-500' }}">
+                                <span class="text-[9px] font-normal {{ $channel->status === 'connecting' ? 'text-yellow-600' : 'text-red-500' }}">
                                     ({{ $channel->status_label }})
                                 </span>
                             @endif
                             @if($channelUnread > 0)
-                                <span class="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 text-xs font-bold text-white bg-green-500 rounded-full">
+                                <span class="inline-flex items-center justify-center min-w-[18px] h-4 px-1 text-[10px] font-bold text-white bg-green-500 rounded-full">
                                     {{ $channelUnread > 99 ? '99+' : $channelUnread }}
                                 </span>
                             @endif
@@ -44,7 +44,7 @@
 
         <div class="flex-1 flex overflow-hidden">
             <!-- Left Column -->
-            <div class="w-80 flex-shrink-0 bg-white border-r border-gray-200 flex flex-col">
+            <div class="w-72 min-w-[250px] flex-shrink bg-white border-r border-gray-200 flex flex-col">
                 <!-- Search & Filter -->
                 <div class="p-3 border-b border-gray-200 space-y-2">
                     <div class="relative">
@@ -312,7 +312,7 @@
                                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a5 5 0 015 5v3M3 10l4-4M3 10l4 4"/></svg>
                                     </button>
                                 @endif
-                                <div class="max-w-[65%] {{ $message->direction === 'outgoing' ? 'bg-[#d9fdd3]' : 'bg-white' }} rounded-lg px-3 py-1.5 shadow-sm relative min-w-[80px]"
+                                <div class="max-w-[70%] {{ $message->direction === 'outgoing' ? 'bg-[#d9fdd3]' : 'bg-white' }} rounded-lg px-3 py-1.5 shadow-sm relative min-w-[60px]"
                                      style="{{ $message->direction === 'outgoing' ? 'border-top-right-radius: 0;' : 'border-top-left-radius: 0;' }}">
                                     @if($message->direction === 'outgoing' && $message->user)
                                         <p class="text-[11px] font-medium text-orange-600 mb-0.5">{{ $message->user->name }}</p>
@@ -803,7 +803,7 @@
                      x-transition:leave="transition ease-in duration-150"
                      x-transition:leave-start="opacity-100 translate-x-0"
                      x-transition:leave-end="opacity-0 translate-x-4"
-                     class="w-80 flex-shrink-0 bg-white border-l border-gray-200 overflow-y-auto">
+                     class="w-72 min-w-[250px] flex-shrink bg-white border-l border-gray-200 overflow-y-auto">
                     <livewire:chat.contact-info :contact="$this->selectedContact" :channel-id="$selectedChannelId" :key="'contact-info-'.$selectedContactId" />
                 </div>
             @endif
