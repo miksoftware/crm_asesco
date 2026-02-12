@@ -112,12 +112,7 @@ class Index extends Component
     {
         $user = auth()->user();
 
-        if ($user->hasRole('admin')) {
-            return Channel::where('is_active', true)
-                ->orderBy('name')
-                ->get();
-        }
-
+        // Siempre mostrar solo los canales asignados al usuario (incluso para admins)
         return $user->channels()
             ->where('is_active', true)
             ->orderBy('name')
