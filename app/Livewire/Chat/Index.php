@@ -1335,6 +1335,9 @@ class Index extends Component
             // First, clean up invalid contacts
             $cleaned = $this->cleanupInvalidContacts($channel->id);
             
+            // Sync real group names from WhatsApp before processing messages
+            $groupsUpdated = $this->syncGroupNames($channel, $evolutionApi);
+            
             $imported = 0;
             $page = 1;
             $maxPages = 50; // Increased to get more messages
@@ -1372,6 +1375,9 @@ class Index extends Component
             if ($cleaned > 0) {
                 $message .= "Se limpiaron {$cleaned} contactos inválidos. ";
             }
+            if ($groupsUpdated > 0) {
+                $message .= "Se actualizaron {$groupsUpdated} nombres de grupos. ";
+            }
             if ($imported > 0) {
                 $message .= "Se importaron {$imported} mensajes.";
                 $this->dispatch('toast', type: 'success', message: trim($message));
@@ -1394,6 +1400,7 @@ class Index extends Component
     private function cleanupInvalidContacts(int $channelId): int
     {
         $invalidContacts = Contact::where('channel_id', $channelId)
+            ->where('is_group', false) // Never delete group contacts
             ->where(function ($query) {
                 $query
                     // Status broadcasts
@@ -1401,16 +1408,11 @@ class Index extends Component
                     ->orWhere('remote_jid', 'like', '%status@%')
                     // Newsletter
                     ->orWhere('remote_jid', 'like', '%@newsletter%')
-                    // Groups
-                    ->orWhere('remote_jid', 'like', '%@g.us%')
                     // "Você" status contacts
                     ->orWhereRaw("LOWER(TRIM(push_name)) = 'você'")
                     ->orWhereRaw("LOWER(TRIM(push_name)) = 'voce'")
                     ->orWhereRaw("LOWER(TRIM(name)) = 'você'")
-                    ->orWhereRaw("LOWER(TRIM(name)) = 'voce'")
-                    // LID contacts that don't have real phone numbers (not starting with valid country code)
-                    // Real phone numbers start with 1-9 and have 10-15 digits
-                    ->orWhereRaw("phone_number NOT REGEXP '^[1-9][0-9]{9,14}$'");
+                    ->orWhereRaw("LOWER(TRIM(name)) = 'voce'");
             })
             ->get();
 
@@ -1430,6 +1432,82 @@ class Index extends Component
         }
 
         return $count;
+    }
+
+    /**
+     * Sync group names from WhatsApp via Evolution API.
+     * Fetches ALL groups the instance is part of and updates names in the database.
+     * This ensures groups have their real WhatsApp names (subject) instead of sender names.
+     */
+    private function syncGroupNames(Channel $channel, EvolutionApiService $evolutionApi): int
+    {
+        $updated = 0;
+        
+        try {
+            $result = $evolutionApi->fetchAllGroups($channel->instance_name);
+            
+            if (!$result['success'] || empty($result['data'])) {
+                Log::debug('Could not fetch groups from Evolution API', ['channel' => $channel->instance_name]);
+                return 0;
+            }
+            
+            $groups = $result['data'];
+            
+            foreach ($groups as $group) {
+                $groupJid = $group['id'] ?? null;
+                $groupSubject = $group['subject'] ?? null;
+                $groupPicture = $group['pictureUrl'] ?? null;
+                
+                if (!$groupJid || !$groupSubject) {
+                    continue;
+                }
+                
+                $groupId = explode('@', $groupJid)[0];
+                
+                // Find or create group contact
+                $contact = Contact::where('channel_id', $channel->id)
+                    ->where('is_group', true)
+                    ->where('group_jid', $groupJid)
+                    ->first();
+                
+                if ($contact) {
+                    // Update name if different
+                    $updateData = [];
+                    if ($contact->name !== $groupSubject) {
+                        $updateData['name'] = $groupSubject;
+                        $updateData['push_name'] = $groupSubject;
+                    }
+                    if ($groupPicture && $contact->profile_picture !== $groupPicture) {
+                        $updateData['profile_picture'] = $groupPicture;
+                    }
+                    if (!empty($updateData)) {
+                        $contact->update($updateData);
+                        $updated++;
+                    }
+                } else {
+                    // Create group contact (even if no messages yet)
+                    Contact::create([
+                        'channel_id' => $channel->id,
+                        'phone_number' => $groupId,
+                        'remote_jid' => $groupJid,
+                        'is_group' => true,
+                        'group_jid' => $groupJid,
+                        'name' => $groupSubject,
+                        'push_name' => $groupSubject,
+                        'profile_picture' => $groupPicture,
+                    ]);
+                    $updated++;
+                }
+            }
+            
+            if ($updated > 0) {
+                Log::info("Updated {$updated} group names for channel {$channel->instance_name}");
+            }
+        } catch (\Exception $e) {
+            Log::error('Error syncing group names', ['error' => $e->getMessage()]);
+        }
+        
+        return $updated;
     }
 
     /**
@@ -1495,7 +1573,9 @@ class Index extends Component
         if ($isGroupMessage) {
             $groupJid = $remoteJid;
             $groupId = $jidPart;
-            $groupName = $msgData['groupName'] ?? $pushName ?? null;
+            // ⭐ IMPORTANT: pushName is the SENDER's name, not the group name
+            // Only use groupName field from the API data
+            $groupName = $msgData['groupName'] ?? null;
             
             // Extract sender info from participant field
             $participant = $key['participant'] ?? null;
@@ -1524,11 +1604,12 @@ class Index extends Component
                     'remote_jid' => $groupJid,
                     'is_group' => true,
                     'group_jid' => $groupJid,
-                    'name' => $groupName,
+                    'name' => $groupName, // May be null — will be updated by syncGroupNames
                     'push_name' => $groupName,
                 ]);
             } else {
-                if ($groupName && !$contact->name) {
+                // Update group name only if we got a real groupName (not pushName)
+                if ($groupName && $groupName !== $contact->name) {
                     $contact->update(['name' => $groupName, 'push_name' => $groupName]);
                 }
             }

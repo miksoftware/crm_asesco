@@ -328,6 +328,30 @@ class EvolutionApiService
         ];
     }
 
+    /**
+     * Fetch all groups the instance is part of, including their real names (subject).
+     */
+    public function fetchAllGroups(string $instanceName): array
+    {
+        $response = $this->request()->get("/group/fetchAllGroups/{$instanceName}", [
+            'getParticipants' => 'false',
+        ]);
+
+        return $this->handleResponse($response);
+    }
+
+    /**
+     * Fetch metadata for a specific group (name, description, participants, etc).
+     */
+    public function findGroupInfo(string $instanceName, string $groupJid): array
+    {
+        $response = $this->request()->get("/group/findGroupInfos/{$instanceName}", [
+            'groupJid' => $groupJid,
+        ]);
+
+        return $this->handleResponse($response);
+    }
+
     protected function handleResponse(Response $response): array
     {
         if ($response->successful()) {

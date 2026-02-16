@@ -136,7 +136,9 @@ class MessageService
             }
             
             $groupJid = $remoteJid;
-            $groupName = $data['groupName'] ?? $data['pushName'] ?? null;
+            // ⭐ IMPORTANT: pushName in group messages is the SENDER's name, NOT the group name
+            // Only use groupName field (if present) — never fallback to pushName for group names
+            $groupName = $data['groupName'] ?? null;
             
             // Find or create group contact
             $contact = Contact::where('channel_id', $channel->id)
@@ -147,6 +149,20 @@ class MessageService
             if (!$contact) {
                 // Use the group JID part as phone_number placeholder (unique per group)
                 $groupId = explode('@', $groupJid)[0];
+                
+                // If we don't have the group name from the webhook, try to fetch it from the API
+                if (!$groupName) {
+                    try {
+                        $evolutionApi = app(EvolutionApiService::class);
+                        $groupInfo = $evolutionApi->findGroupInfo($channel->instance_name, $groupJid);
+                        if ($groupInfo['success'] && !empty($groupInfo['data'])) {
+                            $groupName = $groupInfo['data']['subject'] ?? null;
+                        }
+                    } catch (\Exception $e) {
+                        Log::debug('Could not fetch group info', ['groupJid' => $groupJid, 'error' => $e->getMessage()]);
+                    }
+                }
+                
                 $contact = Contact::create([
                     'channel_id' => $channel->id,
                     'phone_number' => $groupId,
@@ -159,8 +175,8 @@ class MessageService
                     'metadata' => [],
                 ]);
             } else {
-                // Update group name if available
-                if ($groupName && !$contact->name) {
+                // Update group name if we got a real group name from the API
+                if ($groupName && $groupName !== $contact->name) {
                     $contact->update(['name' => $groupName, 'push_name' => $groupName]);
                 }
             }
