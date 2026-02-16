@@ -1338,6 +1338,9 @@ class Index extends Component
             // Sync real group names from WhatsApp before processing messages
             $groupsUpdated = $this->syncGroupNames($channel, $evolutionApi);
             
+            // Sync contact names and profile pictures from WhatsApp
+            $contactsUpdated = $this->syncContactNames($channel, $evolutionApi);
+            
             $imported = 0;
             $page = 1;
             $maxPages = 50; // Increased to get more messages
@@ -1378,10 +1381,14 @@ class Index extends Component
             if ($groupsUpdated > 0) {
                 $message .= "Se actualizaron {$groupsUpdated} nombres de grupos. ";
             }
+            if ($contactsUpdated > 0) {
+                $message .= "Se actualizaron {$contactsUpdated} contactos. ";
+            }
             if ($imported > 0) {
                 $message .= "Se importaron {$imported} mensajes.";
-                $this->dispatch('toast', type: 'success', message: trim($message));
-            } elseif ($cleaned > 0) {
+            }
+            
+            if (!empty(trim($message))) {
                 $this->dispatch('toast', type: 'success', message: trim($message));
             } else {
                 $this->dispatch('toast', type: 'info', message: 'No hay cambios para sincronizar');
@@ -1505,6 +1512,104 @@ class Index extends Component
             }
         } catch (\Exception $e) {
             Log::error('Error syncing group names', ['error' => $e->getMessage()]);
+        }
+        
+        return $updated;
+    }
+
+    /**
+     * Sync contact names and profile pictures from WhatsApp via Evolution API.
+     * Fetches ALL contacts the instance has interacted with and updates the database.
+     * This ensures contacts have their real WhatsApp names (pushName) and profile pictures.
+     */
+    private function syncContactNames(Channel $channel, EvolutionApiService $evolutionApi): int
+    {
+        $updated = 0;
+        
+        try {
+            $result = $evolutionApi->fetchContacts($channel->instance_name);
+            
+            if (!$result['success'] || empty($result['data'])) {
+                Log::debug('Could not fetch contacts from Evolution API', ['channel' => $channel->instance_name]);
+                return 0;
+            }
+            
+            $contacts = $result['data'];
+            
+            // Build a lookup map: phone_number => contact data from WhatsApp
+            $whatsappContacts = [];
+            foreach ($contacts as $waContact) {
+                $remoteJid = $waContact['remoteJid'] ?? $waContact['id'] ?? null;
+                if (!$remoteJid) {
+                    continue;
+                }
+                
+                // Skip groups, broadcasts, newsletters
+                if (str_contains($remoteJid, '@g.us') || str_contains($remoteJid, '@broadcast') || str_contains($remoteJid, '@newsletter') || str_contains($remoteJid, 'status@')) {
+                    continue;
+                }
+                
+                // Extract phone number from JID
+                $jidPart = explode('@', $remoteJid)[0];
+                $phonePart = explode(':', $jidPart)[0];
+                
+                // Only process valid phone numbers
+                if (!preg_match('/^[1-9]\d{9,14}$/', $phonePart)) {
+                    continue;
+                }
+                
+                $pushName = $waContact['pushName'] ?? null;
+                $profilePic = $waContact['profilePicUrl'] ?? $waContact['profilePictureUrl'] ?? null;
+                
+                if ($pushName || $profilePic) {
+                    $whatsappContacts[$phonePart] = [
+                        'push_name' => $pushName,
+                        'profile_picture' => $profilePic,
+                    ];
+                }
+            }
+            
+            if (empty($whatsappContacts)) {
+                return 0;
+            }
+            
+            // Fetch all individual contacts for this channel
+            $dbContacts = Contact::where('channel_id', $channel->id)
+                ->where(function ($q) {
+                    $q->where('is_group', false)->orWhereNull('is_group');
+                })
+                ->whereIn('phone_number', array_keys($whatsappContacts))
+                ->get();
+            
+            foreach ($dbContacts as $dbContact) {
+                $waData = $whatsappContacts[$dbContact->phone_number] ?? null;
+                if (!$waData) {
+                    continue;
+                }
+                
+                $updateData = [];
+                
+                // Update push_name if WhatsApp has a newer/different one
+                if ($waData['push_name'] && $waData['push_name'] !== $dbContact->push_name) {
+                    $updateData['push_name'] = $waData['push_name'];
+                }
+                
+                // Update profile picture if available and different
+                if ($waData['profile_picture'] && $waData['profile_picture'] !== $dbContact->profile_picture) {
+                    $updateData['profile_picture'] = $waData['profile_picture'];
+                }
+                
+                if (!empty($updateData)) {
+                    $dbContact->update($updateData);
+                    $updated++;
+                }
+            }
+            
+            if ($updated > 0) {
+                Log::info("Updated {$updated} contact names/pictures for channel {$channel->instance_name}");
+            }
+        } catch (\Exception $e) {
+            Log::error('Error syncing contact names', ['error' => $e->getMessage()]);
         }
         
         return $updated;
@@ -1706,7 +1811,7 @@ class Index extends Component
             // Update contact if needed
             $updates = [];
             
-            if ($pushName && !$contact->push_name) {
+            if ($pushName && $pushName !== $contact->push_name) {
                 $updates['push_name'] = $pushName;
             }
             

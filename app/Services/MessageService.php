@@ -247,6 +247,10 @@ class MessageService
                 }
                 if ($pushName && $contact->push_name !== $pushName) {
                     $updates['push_name'] = $pushName;
+                    // Also update name if contact has no custom name set
+                    if (!$contact->name) {
+                        $updates['name'] = $pushName;
+                    }
                 }
                 if (!empty($updates)) {
                     $contact->update($updates);
