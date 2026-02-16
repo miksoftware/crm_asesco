@@ -13,7 +13,7 @@
         </div>
     @else
         <!-- Channel Tabs - Full Width Top Bar -->
-        <div class="bg-white border-b-2 border-gray-300 flex-shrink-0 overflow-x-auto">
+        <div class="bg-white border-b-2 border-gray-300 flex-shrink-0 overflow-x-auto scrollbar-hide" style="-ms-overflow-style:none;scrollbar-width:none;">
             <div class="flex min-w-max">
                 @foreach($this->channels as $channel)
                     @php $channelUnread = $this->getChannelUnreadCount($channel->id); @endphp

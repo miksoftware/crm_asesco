@@ -78,6 +78,7 @@
                             </div>
                         </th>
                         <th class="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Canal</th>
+                        <th class="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Enviado por</th>
                         <th class="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Estado</th>
                         <th class="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Progreso</th>
                         <th wire:click="sortBy('created_at')" class="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-100">
@@ -104,6 +105,9 @@
                         </td>
                         <td class="px-6 py-4">
                             <span class="text-gray-700">{{ $campaign->channel->name ?? 'N/A' }}</span>
+                        </td>
+                        <td class="px-6 py-4">
+                            <span class="text-gray-700">{{ $campaign->user->name ?? 'N/A' }}</span>
                         </td>
                         <td class="px-6 py-4">
                             <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
