@@ -404,14 +404,14 @@ class Index extends Component
             return;
         }
 
-        // Send text message
+        // Send text message (async - creates message immediately, sends via job)
         $messageService = app(MessageService::class);
 
         try {
             // For groups, use the group JID; for individuals, use phone number
             $recipient = $contact->is_group ? $contact->group_jid : $contact->phone_number;
             
-            $message = $messageService->sendTextMessage(
+            $messageService->sendTextMessage(
                 $this->selectedChannelId,
                 $recipient,
                 $text,
@@ -419,11 +419,6 @@ class Index extends Component
             );
 
             $this->messageText = '';
-
-            if ($message->status === 'failed') {
-                $this->dispatch('toast', type: 'error', message: 'Error al enviar el mensaje');
-            }
-
             unset($this->messages);
         } catch (\Exception $e) {
             Log::error('Error sending message', ['error' => $e->getMessage()]);
@@ -439,7 +434,6 @@ class Index extends Component
             return;
         }
 
-        $evolutionApi = app(EvolutionApiService::class);
         $recipient = $contact->is_group ? $contact->group_jid : ($contact->remote_jid ?? $contact->phone_number);
 
         try {
@@ -448,51 +442,53 @@ class Index extends Component
             $mimeType = $this->mediaFile->getMimeType();
             $fileName = $this->mediaFile->getClientOriginalName();
 
-            $response = null;
-
+            // Determine type from mime
             if (str_starts_with($mimeType, 'image/')) {
-                $response = $evolutionApi->sendImageMessage($channel->instance_name, $recipient, $base64, $caption, $mimeType);
                 $type = 'image';
             } elseif (str_starts_with($mimeType, 'video/')) {
-                $response = $evolutionApi->sendVideoMessage($channel->instance_name, $recipient, $base64, $caption, $mimeType);
                 $type = 'video';
             } elseif (str_starts_with($mimeType, 'audio/')) {
-                $response = $evolutionApi->sendAudioMessage($channel->instance_name, $recipient, $base64, $mimeType);
                 $type = 'audio';
             } else {
-                $response = $evolutionApi->sendDocumentMessage($channel->instance_name, $recipient, $base64, $fileName, $mimeType, $caption);
                 $type = 'document';
             }
 
-            if ($response && $response['success']) {
-                // Save to local storage
-                $path = 'chat-media/' . date('Y/m') . '/' . uniqid() . '_' . $fileName;
-                Storage::disk('public')->put($path, $fileContent);
-                $mediaUrl = Storage::disk('public')->url($path);
+            // Save to local storage immediately (fast, no HTTP)
+            $path = 'chat-media/' . date('Y/m') . '/' . uniqid() . '_' . $fileName;
+            Storage::disk('public')->put($path, $fileContent);
+            $mediaUrl = Storage::disk('public')->url($path);
 
-                // Create message record
-                Message::create([
-                    'contact_id' => $contact->id,
-                    'channel_id' => $this->selectedChannelId,
-                    'user_id' => auth()->id(),
-                    'message_id' => $response['data']['key']['id'] ?? null,
-                    'direction' => 'outgoing',
-                    'type' => $type,
-                    'content' => $caption ?: $fileName,
-                    'media_url' => $mediaUrl,
-                    'media_mime_type' => $mimeType,
-                    'status' => 'sent',
-                    'is_read' => true,
-                    'sent_at' => now(),
-                    'sender_name' => $contact->is_group ? 'Tú' : null,
-                ]);
+            // Create message record with pending status
+            $message = Message::create([
+                'contact_id' => $contact->id,
+                'channel_id' => $this->selectedChannelId,
+                'user_id' => auth()->id(),
+                'direction' => 'outgoing',
+                'type' => $type,
+                'content' => $caption ?: $fileName,
+                'media_url' => $mediaUrl,
+                'media_mime_type' => $mimeType,
+                'status' => 'pending',
+                'is_read' => true,
+                'sent_at' => now(),
+                'sender_name' => $contact->is_group ? 'Tú' : null,
+            ]);
 
-                $this->dispatch('toast', type: 'success', message: 'Archivo enviado');
-            } else {
-                $this->dispatch('toast', type: 'error', message: 'Error al enviar el archivo');
-            }
+            // Dispatch async job to send via Evolution API
+            \App\Jobs\SendMessageJob::dispatch(
+                messageId: $message->id,
+                instanceName: $channel->instance_name,
+                recipient: $recipient,
+                text: $caption ?? '',
+                type: $type,
+                mediaBase64: $base64,
+                fileName: $fileName,
+                mimeType: $mimeType,
+                caption: $caption,
+            );
+
         } catch (\Exception $e) {
-            Log::error('Error sending media', ['error' => $e->getMessage()]);
+            Log::error('Error preparing media message', ['error' => $e->getMessage()]);
             $this->dispatch('toast', type: 'error', message: 'Error: ' . $e->getMessage());
         }
 
@@ -556,50 +552,47 @@ class Index extends Component
             return;
         }
 
-        $evolutionApi = app(EvolutionApiService::class);
         $recipient = $contact->is_group ? $contact->group_jid : ($contact->remote_jid ?? $contact->phone_number);
         $caption = trim($caption ?? '');
 
         try {
-            $response = $evolutionApi->sendImageMessage(
-                $channel->instance_name, 
-                $recipient, 
-                $base64Image, 
-                $caption ?: null, 
-                'image/png'
+            // Save to storage immediately (fast)
+            $imageData = base64_decode($base64Image);
+            $fileName = 'pasted_' . uniqid() . '.png';
+            $path = 'chat-media/' . date('Y/m') . '/' . $fileName;
+            Storage::disk('public')->put($path, $imageData);
+            $mediaUrl = Storage::disk('public')->url($path);
+
+            // Create message record with pending status
+            $message = Message::create([
+                'contact_id' => $contact->id,
+                'channel_id' => $this->selectedChannelId,
+                'user_id' => auth()->id(),
+                'direction' => 'outgoing',
+                'type' => 'image',
+                'content' => $caption ?: 'Imagen',
+                'media_url' => $mediaUrl,
+                'media_mime_type' => 'image/png',
+                'status' => 'pending',
+                'is_read' => true,
+                'sent_at' => now(),
+                'sender_name' => $contact->is_group ? 'Tú' : null,
+            ]);
+
+            // Dispatch async job
+            \App\Jobs\SendMessageJob::dispatch(
+                messageId: $message->id,
+                instanceName: $channel->instance_name,
+                recipient: $recipient,
+                text: $caption,
+                type: 'image',
+                mediaBase64: $base64Image,
+                mimeType: 'image/png',
+                caption: $caption ?: null,
             );
 
-            if ($response && $response['success']) {
-                // Decode and save to storage
-                $imageData = base64_decode($base64Image);
-                $fileName = 'pasted_' . uniqid() . '.png';
-                $path = 'chat-media/' . date('Y/m') . '/' . $fileName;
-                Storage::disk('public')->put($path, $imageData);
-                $mediaUrl = Storage::disk('public')->url($path);
-
-                // Create message record
-                Message::create([
-                    'contact_id' => $contact->id,
-                    'channel_id' => $this->selectedChannelId,
-                    'user_id' => auth()->id(),
-                    'message_id' => $response['data']['key']['id'] ?? null,
-                    'direction' => 'outgoing',
-                    'type' => 'image',
-                    'content' => $caption ?: 'Imagen',
-                    'media_url' => $mediaUrl,
-                    'media_mime_type' => 'image/png',
-                    'status' => 'sent',
-                    'is_read' => true,
-                    'sent_at' => now(),
-                    'sender_name' => $contact->is_group ? 'Tú' : null,
-                ]);
-
-                $this->messageText = '';
-                $this->dispatch('toast', type: 'success', message: 'Imagen enviada');
-                unset($this->messages);
-            } else {
-                $this->dispatch('toast', type: 'error', message: 'Error al enviar la imagen');
-            }
+            $this->messageText = '';
+            unset($this->messages);
         } catch (\Exception $e) {
             Log::error('Error sending pasted image', ['error' => $e->getMessage()]);
             $this->dispatch('toast', type: 'error', message: 'Error: ' . $e->getMessage());
@@ -633,7 +626,6 @@ class Index extends Component
             return;
         }
 
-        $evolutionApi = app(EvolutionApiService::class);
         $recipient = $contact->is_group ? $contact->group_jid : ($contact->remote_jid ?? $contact->phone_number);
 
         try {
@@ -643,38 +635,41 @@ class Index extends Component
                 $base64Data = explode(',', $audioBase64)[1];
             }
 
-            $response = $evolutionApi->sendAudioMessage($channel->instance_name, $recipient, $base64Data);
+            // Save audio locally (fast)
+            $audioContent = base64_decode($base64Data);
+            $filename = 'voice_' . uniqid() . '.ogg';
+            $path = 'chat-media/' . date('Y/m') . '/' . $filename;
+            Storage::disk('public')->put($path, $audioContent);
+            $mediaUrl = Storage::disk('public')->url($path);
 
-            if ($response && $response['success']) {
-                // Save audio locally
-                $audioContent = base64_decode($base64Data);
-                $filename = 'voice_' . uniqid() . '.ogg';
-                $path = 'chat-media/' . date('Y/m') . '/' . $filename;
-                Storage::disk('public')->put($path, $audioContent);
-                $mediaUrl = Storage::disk('public')->url($path);
+            // Create message record with pending status
+            $message = Message::create([
+                'contact_id' => $contact->id,
+                'channel_id' => $this->selectedChannelId,
+                'user_id' => auth()->id(),
+                'direction' => 'outgoing',
+                'type' => 'audio',
+                'content' => '[Audio]',
+                'media_url' => $mediaUrl,
+                'media_mime_type' => 'audio/ogg; codecs=opus',
+                'status' => 'pending',
+                'is_read' => true,
+                'sent_at' => now(),
+                'sender_name' => $contact->is_group ? 'Tú' : null,
+            ]);
 
-                // Create message record
-                Message::create([
-                    'contact_id' => $contact->id,
-                    'channel_id' => $this->selectedChannelId,
-                    'user_id' => auth()->id(),
-                    'message_id' => $response['data']['key']['id'] ?? null,
-                    'direction' => 'outgoing',
-                    'type' => 'audio',
-                    'content' => '[Audio]',
-                    'media_url' => $mediaUrl,
-                    'media_mime_type' => 'audio/ogg; codecs=opus',
-                    'status' => 'sent',
-                    'is_read' => true,
-                    'sent_at' => now(),
-                    'sender_name' => $contact->is_group ? 'Tú' : null,
-                ]);
+            // Dispatch async job
+            \App\Jobs\SendMessageJob::dispatch(
+                messageId: $message->id,
+                instanceName: $channel->instance_name,
+                recipient: $recipient,
+                text: '',
+                type: 'audio',
+                mediaBase64: $base64Data,
+                mimeType: 'audio/ogg; codecs=opus',
+            );
 
-                $this->dispatch('toast', type: 'success', message: 'Audio enviado');
-                unset($this->messages);
-            } else {
-                $this->dispatch('toast', type: 'error', message: 'Error al enviar el audio');
-            }
+            unset($this->messages);
         } catch (\Exception $e) {
             Log::error('Error sending voice message', ['error' => $e->getMessage()]);
             $this->dispatch('toast', type: 'error', message: 'Error: ' . $e->getMessage());
@@ -1863,20 +1858,22 @@ class Index extends Component
     }
 
     /**
-     * Refresh unread counts and messages - called by polling.
-     * This ensures all users see updated counts and new messages in real-time.
+     * Lightweight polling method - only refreshes what's needed.
+     * Called every 10 seconds from the outer container.
+     * Only invalidates the cheap computed properties.
      */
     public function refreshUnreadCounts(): void
     {
         unset($this->channelUnreadCounts);
         unset($this->conversations);
-        
-        // Refresh channels to pick up connection status changes
-        unset($this->channels);
-        unset($this->isChannelConnected);
-        
-        // Also refresh messages for the active conversation so new incoming 
-        // messages (including media) appear automatically without manual sync
+    }
+
+    /**
+     * Refresh the active conversation messages - called by the messages container.
+     * This is a separate polling target so it only fires when viewing a chat.
+     */
+    public function refreshActiveChat(): void
+    {
         if ($this->selectedContactId !== null && $this->selectedChannelId !== null) {
             unset($this->messages);
         }

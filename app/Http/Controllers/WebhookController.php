@@ -45,20 +45,8 @@ class WebhookController extends Controller
             }
         }
         
-        // Log payload for debugging
-        Log::info('=== WEBHOOK RAW PAYLOAD ===', [
-            'full_payload' => json_encode($payload, JSON_PRETTY_PRINT),
-        ]);
-        
-        // Si es un mensaje, loguear los campos del key específicamente
+        // AUTO-CREATE LID MAPPING if both remoteJid and remoteJidAlt exist
         if (isset($payload['data']['key'])) {
-            Log::info('=== WEBHOOK KEY FIELDS ===', [
-                'remoteJid' => $payload['data']['key']['remoteJid'] ?? 'NO EXISTE',
-                'remoteJidAlt' => $payload['data']['key']['remoteJidAlt'] ?? 'NO EXISTE',
-                'participant' => $payload['data']['key']['participant'] ?? 'NO EXISTE',
-            ]);
-            
-            // ⭐ AUTO-CREATE LID MAPPING if both remoteJid and remoteJidAlt exist
             $remoteJid = $payload['data']['key']['remoteJid'] ?? null;
             $remoteJidAlt = $payload['data']['key']['remoteJidAlt'] ?? null;
             
@@ -67,10 +55,9 @@ class WebhookController extends Controller
             }
         }
         
-        // Log incoming webhook for debugging
-        Log::info('Evolution API Webhook received', [
+        Log::debug('Webhook received', [
             'event' => $payload['event'] ?? 'unknown',
-            'instance' => $payload['instance'] ?? 'unknown',
+            'instance' => $instanceName,
         ]);
 
         // Validate basic payload structure
@@ -92,8 +79,8 @@ class WebhookController extends Controller
         } catch (\Exception $e) {
             Log::error('Error processing webhook', [
                 'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString(),
-                'payload' => $payload,
+                'event' => $payload['event'] ?? 'unknown',
+                'instance' => $instanceName,
             ]);
             
             return response()->json(['error' => 'Processing failed'], 500);
@@ -132,25 +119,21 @@ class WebhookController extends Controller
         $isGroupMessage = str_contains($remoteJid, '@g.us');
         
         if (($data['key']['fromMe'] ?? false) === true && !$isGroupMessage) {
-            Log::debug('Skipping outgoing message webhook');
             return response()->json(['status' => 'skipped', 'reason' => 'outgoing_message']);
         }
 
         // Skip status/broadcast messages
         if (str_contains($remoteJid, '@broadcast') || str_contains($remoteJid, 'status@')) {
-            Log::debug('Skipping status/broadcast message webhook');
             return response()->json(['status' => 'skipped', 'reason' => 'status_broadcast']);
         }
 
         // Skip newsletter messages
         if (str_contains($remoteJid, '@newsletter')) {
-            Log::debug('Skipping newsletter message webhook');
             return response()->json(['status' => 'skipped', 'reason' => 'newsletter']);
         }
 
         // Skip reactions
         if (isset($data['message']['reactionMessage'])) {
-            Log::debug('Skipping reaction message webhook');
             return response()->json(['status' => 'skipped', 'reason' => 'reaction']);
         }
 
@@ -158,7 +141,6 @@ class WebhookController extends Controller
         if (isset($data['message']['protocolMessage'])) {
             $protoType = $data['message']['protocolMessage']['type'] ?? null;
             if ($protoType !== 'REVOKE' && $protoType !== 0) {
-                Log::debug('Skipping protocol message webhook');
                 return response()->json(['status' => 'skipped', 'reason' => 'protocol_message']);
             }
         }
@@ -172,12 +154,6 @@ class WebhookController extends Controller
             
             // Broadcast new message event for real-time updates
             $this->broadcastNewMessage($message);
-            
-            Log::info('Incoming message processed successfully', [
-                'message_id' => $message->id,
-                'contact_id' => $message->contact_id,
-                'channel_id' => $message->channel_id,
-            ]);
             
             return response()->json([
                 'status' => 'processed',
@@ -219,11 +195,6 @@ class WebhookController extends Controller
             // When messages.update arrives with LID, we can create the mapping
             $cacheKey = "lid_mapping:{$messageId}";
             Cache::put($cacheKey, $cleanNumber, 300); // 5 minutes
-            
-            Log::debug('Cached phone from send.message for LID mapping', [
-                'messageId' => $messageId,
-                'phone' => $cleanNumber,
-            ]);
         }
         
         return response()->json(['status' => 'processed']);
@@ -316,14 +287,8 @@ class WebhookController extends Controller
             };
 
             if ($mappedStatus) {
-                $updated = \App\Models\Message::where('message_id', $messageId)
+                \App\Models\Message::where('message_id', $messageId)
                     ->update(['status' => $mappedStatus]);
-                    
-                Log::info('Message status update attempt', [
-                    'message_id' => $messageId,
-                    'status' => $mappedStatus,
-                    'rows_updated' => $updated,
-                ]);
             }
         }
 
@@ -372,12 +337,6 @@ class WebhookController extends Controller
                     // The real phone is usually the first part if it looks like a phone
                     if (preg_match('/^[1-9]\d{9,14}$/', $parts[0])) {
                         // First part is phone, this is format like 573028537828:39@s.whatsapp.net
-                        // Not a true LID, but we can still use the phone number
-                        Log::debug('JID with suffix detected', [
-                            'messageId' => $messageId,
-                            'remoteJid' => $remoteJid,
-                            'phone' => $parts[0],
-                        ]);
                     }
                 }
                 
@@ -391,12 +350,6 @@ class WebhookController extends Controller
                         $messageId,
                         $channel?->id
                     );
-                    
-                    Log::info('LID mapping created from webhook', [
-                        'lid' => $lidPart,
-                        'phone' => $cachedPhone,
-                        'messageId' => $messageId,
-                    ]);
                 }
             } elseif (!$cachedPhone && $isRealPhone) {
                 // This LID JID contains a real phone number, cache it
@@ -408,10 +361,6 @@ class WebhookController extends Controller
             
             if (!$existingCache) {
                 Cache::put($cacheKey, $cleanNumber, $cacheTtl);
-                Log::debug('Cached phone number for LID mapping', [
-                    'messageId' => $messageId,
-                    'phone' => $cleanNumber,
-                ]);
             } elseif ($existingCache !== $cleanNumber) {
                 // We have a different number cached - one might be a LID
                 // Check which one is the real phone and which is the LID
@@ -421,12 +370,10 @@ class WebhookController extends Controller
                     // Existing is phone, current is LID
                     $channel = $instanceName ? \App\Models\Channel::where('instance_name', $instanceName)->first() : null;
                     LidMapping::createMapping($cleanNumber, $existingCache, $messageId, $channel?->id);
-                    Log::info('LID mapping created (reverse)', ['lid' => $cleanNumber, 'phone' => $existingCache]);
                 } elseif (!$existingIsPhone && $isRealPhone) {
                     // Existing is LID, current is phone
                     $channel = $instanceName ? \App\Models\Channel::where('instance_name', $instanceName)->first() : null;
                     LidMapping::createMapping($existingCache, $cleanNumber, $messageId, $channel?->id);
-                    Log::info('LID mapping created', ['lid' => $existingCache, 'phone' => $cleanNumber]);
                 }
             }
         }
@@ -456,12 +403,6 @@ class WebhookController extends Controller
             };
             
             $channel->update(['status' => $newStatus]);
-            
-            Log::info('Channel connection status updated', [
-                'channel_id' => $channel->id,
-                'instance' => $instanceName,
-                'status' => $newStatus,
-            ]);
         }
 
         return response()->json(['status' => 'processed']);
@@ -516,13 +457,6 @@ class WebhookController extends Controller
                 'lid' => $lid,
                 'phone_number' => $phoneNumber,
                 'channel_id' => $channel?->id,
-            ]);
-            
-            Log::info('LID mapping created from remoteJidAlt', [
-                'lid' => $lid,
-                'phone' => $phoneNumber,
-                'remoteJid' => $remoteJid,
-                'remoteJidAlt' => $remoteJidAlt,
             ]);
         }
     }

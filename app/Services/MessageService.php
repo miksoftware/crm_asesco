@@ -2,6 +2,8 @@
 
 namespace App\Services;
 
+use App\Jobs\DownloadMediaJob;
+use App\Jobs\SendMessageJob;
 use App\Models\Channel;
 use App\Models\Contact;
 use App\Models\Message;
@@ -76,55 +78,16 @@ class MessageService
             'sent_at' => now(),
         ]);
 
-        try {
-            Log::info('Sending message via Evolution API', [
-                'channel' => $channel->instance_name,
-                'recipient' => $apiRecipient,
-                'is_group' => $isGroup,
-                'remote_jid' => $contact->remote_jid,
-            ]);
+        // Dispatch async job to send via Evolution API
+        // This returns immediately so the UI doesn't block
+        SendMessageJob::dispatch(
+            messageId: $message->id,
+            instanceName: $channel->instance_name,
+            recipient: $apiRecipient,
+            text: $text,
+        );
 
-            // Send via Evolution API
-            $response = $this->evolutionApi->sendTextMessage(
-                $channel->instance_name,
-                $apiRecipient,
-                $text
-            );
-
-            Log::info('Evolution API sendTextMessage response', [
-                'channel' => $channel->instance_name,
-                'recipient' => $apiRecipient,
-                'response' => $response,
-            ]);
-
-            if ($response['success']) {
-                $messageId = $response['data']['key']['id'] ?? null;
-                $message->update([
-                    'message_id' => $messageId,
-                    'status' => 'sent',
-                ]);
-            } else {
-                $errorMsg = $response['error'] ?? 'Error desconocido de Evolution API';
-                $message->update(['status' => 'failed']);
-                Log::error('Failed to send message via Evolution API', [
-                    'channel_id' => $channelId,
-                    'recipient' => $apiRecipient,
-                    'error' => $errorMsg,
-                    'full_response' => $response,
-                ]);
-                throw new \Exception($errorMsg);
-            }
-        } catch (\Exception $e) {
-            $message->update(['status' => 'failed']);
-            Log::error('Exception sending message via Evolution API', [
-                'channel_id' => $channelId,
-                'recipient' => $apiRecipient,
-                'exception' => $e->getMessage(),
-            ]);
-            throw $e;
-        }
-
-        return $message->fresh();
+        return $message;
     }
 
 
@@ -284,15 +247,20 @@ class MessageService
         $mediaUrl = $this->extractMediaUrl($normalizedMessage, $messageType);
         $mediaMimeType = $this->extractMediaMimeType($normalizedMessage, $messageType);
         
-        // For media messages, try to get base64 and save locally
+        // For media messages, check for inline base64 first (instant), otherwise dispatch background job
+        $shouldDispatchMediaJob = false;
         if (in_array($messageType, ['image', 'video', 'audio', 'document', 'sticker']) && $messageId) {
             $inlineBase64 = $data['message']['base64'] ?? null;
             
-            $localMediaUrl = $this->downloadAndSaveMedia(
-                $instanceName, $messageId, $remoteJid, $messageType, $mediaMimeType, $inlineBase64
-            );
-            if ($localMediaUrl) {
-                $mediaUrl = $localMediaUrl;
+            if ($inlineBase64) {
+                // Inline base64 available - save immediately (fast, no HTTP call)
+                $localMediaUrl = $this->saveBase64Media($inlineBase64, $messageType, $messageId, $mediaMimeType);
+                if ($localMediaUrl) {
+                    $mediaUrl = $localMediaUrl;
+                }
+            } else {
+                // No inline base64 - will dispatch background job after message is created
+                $shouldDispatchMediaJob = true;
             }
         }
         
@@ -334,103 +302,45 @@ class MessageService
             'metadata' => $data,
             'sent_at' => $sentAt,
         ]);
+
+        // Dispatch background job to download media if needed
+        if ($shouldDispatchMediaJob && $messageId) {
+            DownloadMediaJob::dispatch(
+                messageId: $message->id,
+                instanceName: $instanceName,
+                externalMessageId: $messageId,
+                remoteJid: $remoteJid,
+                type: $messageType,
+                mimeType: $mediaMimeType,
+            );
+        }
         
         return $message;
     }
 
     /**
-     * Download media from Evolution API and save locally.
-     * Supports inline base64 from webhook (webhookBase64) and API fallback with retry.
+     * Save inline base64 media directly (fast, no HTTP call).
+     * Used when Evolution API includes base64 in the webhook payload.
      */
-    private function downloadAndSaveMedia(string $instanceName, string $messageId, string $remoteJid, string $type, ?string $mimeType, ?string $inlineBase64 = null): ?string
+    private function saveBase64Media(string $base64, string $type, string $messageId, ?string $mimeType): ?string
     {
         try {
-            $base64 = null;
-            $resolvedMimeType = $mimeType;
-            
-            // Option 1: Use inline base64 from webhook (webhookBase64 enabled in Evolution API)
-            if ($inlineBase64) {
-                $base64 = $inlineBase64;
-                Log::info('Using inline base64 from webhook for media', [
-                    'messageId' => $messageId,
-                    'type' => $type,
-                ]);
-            }
-            
-            // Option 2: Fetch from Evolution API with retry
-            if (!$base64 && $remoteJid) {
-                $maxRetries = 2;
-                for ($attempt = 1; $attempt <= $maxRetries; $attempt++) {
-                    if ($attempt > 1) {
-                        usleep(1500000); // Wait 1.5 seconds before retry
-                        Log::info("Retrying media download (attempt {$attempt}/{$maxRetries})", [
-                            'messageId' => $messageId,
-                        ]);
-                    }
-                    
-                    $result = $this->evolutionApi->getMediaBase64($instanceName, $messageId, $remoteJid);
-                    
-                    if ($result['success'] && !empty($result['data']['base64'])) {
-                        $base64 = $result['data']['base64'];
-                        $resolvedMimeType = $result['data']['mimetype'] ?? $mimeType;
-                        break;
-                    }
-                    
-                    Log::warning("Failed to download media (attempt {$attempt}/{$maxRetries})", [
-                        'instance' => $instanceName,
-                        'messageId' => $messageId,
-                        'remoteJid' => $remoteJid,
-                        'error' => $result['error'] ?? 'No base64 data',
-                        'status' => $result['status'] ?? null,
-                    ]);
-                }
-            }
-            
-            if (!$base64) {
-                Log::error('All media download attempts failed', [
-                    'instance' => $instanceName,
-                    'messageId' => $messageId,
-                    'type' => $type,
-                    'remoteJid' => $remoteJid,
-                ]);
-                return null;
-            }
-            
-            $resolvedMimeType = $resolvedMimeType ?? 'application/octet-stream';
-            
-            // Determine file extension from mime type
+            $resolvedMimeType = $mimeType ?? 'application/octet-stream';
             $extension = $this->getExtensionFromMimeType($resolvedMimeType, $type);
-            
-            // Generate unique filename
             $filename = $type . '_' . $messageId . '.' . $extension;
             $path = 'chat-media/' . date('Y/m') . '/' . $filename;
-            
-            // Decode and save
+
             $content = base64_decode($base64);
-            
             if ($content === false || strlen($content) === 0) {
-                Log::error('Failed to decode base64 media content', [
-                    'messageId' => $messageId,
-                    'base64_length' => strlen($base64),
-                ]);
                 return null;
             }
-            
+
             \Illuminate\Support\Facades\Storage::disk('public')->put($path, $content);
-            
-            Log::info('Media saved successfully', [
-                'messageId' => $messageId,
-                'path' => $path,
-                'size' => strlen($content),
-            ]);
-            
             return \Illuminate\Support\Facades\Storage::disk('public')->url($path);
         } catch (\Exception $e) {
-            Log::error('Exception downloading media', [
-                'instance' => $instanceName,
+            Log::warning('Failed to save inline base64 media', [
                 'messageId' => $messageId,
-                'exception' => $e->getMessage(),
-                'trace' => $e->getTraceAsString(),
+                'error' => $e->getMessage(),
             ]);
             return null;
         }
