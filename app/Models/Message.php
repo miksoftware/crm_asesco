@@ -9,6 +9,21 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class Message extends Model
 {
     use HasFactory;
+
+    protected static function booted(): void
+    {
+        // Automatically keep contact.last_message_at in sync
+        static::created(function (Message $message) {
+            $sentAt = $message->sent_at ?? now();
+            $message->contact()
+                ->where(function ($q) use ($sentAt) {
+                    $q->whereNull('last_message_at')
+                      ->orWhere('last_message_at', '<', $sentAt);
+                })
+                ->update(['last_message_at' => $sentAt]);
+        });
+    }
+
     protected $fillable = [
         'contact_id',
         'channel_id',

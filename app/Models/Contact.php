@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Contact extends Model
 {
@@ -24,12 +25,14 @@ class Contact extends Model
         'notes',
         'labels',
         'metadata',
+        'last_message_at',
     ];
 
     protected $casts = [
         'labels' => 'array',
         'metadata' => 'array',
         'is_group' => 'boolean',
+        'last_message_at' => 'datetime',
     ];
 
     /**
@@ -54,6 +57,15 @@ class Contact extends Model
     public function messages(): HasMany
     {
         return $this->hasMany(Message::class);
+    }
+
+    /**
+     * Get the latest message for the contact (eager-loadable).
+     * Uses latestOfMany to avoid N+1 queries.
+     */
+    public function latestMessage(): HasOne
+    {
+        return $this->hasOne(Message::class)->latestOfMany('sent_at');
     }
 
     /**
@@ -99,9 +111,16 @@ class Contact extends Model
 
     /**
      * Get the count of unread incoming messages.
+     * If 'unread_count' was loaded via addSelect subquery, use that value.
+     * Otherwise falls back to a query (avoid in loops).
      */
     public function getUnreadCountAttribute(): int
     {
+        // If loaded via subquery in conversations(), use cached value
+        if (array_key_exists('unread_count', $this->attributes)) {
+            return (int) $this->attributes['unread_count'];
+        }
+
         return $this->messages()
             ->where('direction', 'incoming')
             ->where('is_read', false)
@@ -110,9 +129,21 @@ class Contact extends Model
 
     /**
      * Get the last message for the contact.
+     * Uses eager-loaded latestMessage relationship when available.
      */
     public function getLastMessageAttribute(): ?Message
     {
+        // Use eager-loaded latestMessage relationship (no extra query)
+        if ($this->relationLoaded('latestMessage')) {
+            return $this->latestMessage;
+        }
+
+        // Use manually set messages relation
+        if ($this->relationLoaded('messages')) {
+            return $this->messages->first();
+        }
+
+        // Fallback: direct query (avoid in loops)
         return $this->messages()
             ->orderByDesc('sent_at')
             ->orderByDesc('created_at')

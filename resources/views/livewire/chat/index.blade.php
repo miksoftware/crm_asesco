@@ -132,6 +132,19 @@
 
                 <!-- Conversations List -->
                 <div class="flex-1 overflow-y-auto">
+                    <!-- Loading skeleton shown instantly on channel switch -->
+                    <div wire:loading wire:target="selectChannel" class="animate-pulse">
+                        @for($i = 0; $i < 8; $i++)
+                            <div class="flex items-center gap-3 p-3 border-b border-gray-100">
+                                <div class="w-12 h-12 rounded-full bg-gray-200 flex-shrink-0"></div>
+                                <div class="flex-1 min-w-0">
+                                    <div class="h-4 bg-gray-200 rounded w-3/4 mb-2"></div>
+                                    <div class="h-3 bg-gray-100 rounded w-1/2"></div>
+                                </div>
+                            </div>
+                        @endfor
+                    </div>
+                    <div wire:loading.remove wire:target="selectChannel">
                     @forelse($this->conversations as $contact)
                         <div wire:key="contact-{{ $contact->id }}"
                              class="group relative flex items-center gap-3 p-3 cursor-pointer border-b border-gray-100 hover:bg-gray-50 transition-colors
@@ -228,6 +241,7 @@
                             @endif
                         </div>
                     @endforelse
+                    </div>
                 </div>
             </div>
 

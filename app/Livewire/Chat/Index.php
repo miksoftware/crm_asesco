@@ -169,14 +169,9 @@ class Index extends Component
             return collect();
         }
 
-        // Use a more efficient query with subqueries instead of whereHas
+        // Use last_message_at column instead of expensive EXISTS subquery
         $query = Contact::where('channel_id', $this->selectedChannelId)
-            ->whereExists(function ($q) {
-                $q->selectRaw('1')
-                  ->from('messages')
-                  ->whereColumn('messages.contact_id', 'contacts.id')
-                  ->limit(1);
-            });
+            ->whereNotNull('last_message_at');
 
         // By default (not groups filter), show only individual chats
         // When groups filter is active, show only groups
@@ -252,33 +247,19 @@ class Index extends Component
             });
         }
 
-        // Get contacts with last message using a subquery for sorting
+        // Get contacts with unread_count via subquery (eliminates N+1)
+        // Use last_message_at column for sorting (no subquery needed)
         $contacts = $query
-            ->addSelect(['last_message_at' => Message::selectRaw('MAX(sent_at)')
+            ->addSelect(['*'])
+            ->addSelect(['unread_count' => Message::selectRaw('COUNT(*)')
                 ->whereColumn('contact_id', 'contacts.id')
+                ->where('direction', 'incoming')
+                ->where('is_read', false)
             ])
-            ->with(['assignedUser'])
+            ->with(['assignedUser', 'latestMessage'])
             ->orderByDesc('last_message_at')
-            ->limit(100) // Limit results for performance
+            ->limit(100)
             ->get();
-
-        // Load last message for each contact efficiently
-        $contactIds = $contacts->pluck('id')->toArray();
-        if (!empty($contactIds)) {
-            $lastMessages = Message::whereIn('contact_id', $contactIds)
-                ->whereIn('id', function ($q) use ($contactIds) {
-                    $q->selectRaw('MAX(id)')
-                      ->from('messages')
-                      ->whereIn('contact_id', $contactIds)
-                      ->groupBy('contact_id');
-                })
-                ->get()
-                ->keyBy('contact_id');
-
-            $contacts->each(function ($contact) use ($lastMessages) {
-                $contact->setRelation('messages', collect([$lastMessages->get($contact->id)])->filter());
-            });
-        }
 
         return $contacts;
     }
@@ -394,9 +375,6 @@ class Index extends Component
             $this->dispatch('toast', type: 'error', message: 'Contacto no encontrado');
             return;
         }
-
-        // Mark conversation as read when sending a message (agent is actively responding)
-        $this->markAsRead($this->selectedContactId);
 
         // If there's a media file, send it
         if ($this->mediaFile) {
@@ -1227,9 +1205,8 @@ class Index extends Component
         $notificationService = app(NotificationService::class);
         $notificationService->markConversationAsRead(auth()->id(), $contactId, $this->selectedChannelId);
 
-        // Clear all caches to ensure fresh data
+        // Only refresh the lightweight unread counts, NOT the heavy conversations list
         unset($this->channelUnreadCounts);
-        unset($this->conversations);
 
         // Dispatch to notification components to update the count
         $this->dispatch('notifications-updated')->to(NotificationBadge::class);
