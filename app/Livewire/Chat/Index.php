@@ -1419,7 +1419,14 @@ class Index extends Component
                     ->orWhereRaw("LOWER(TRIM(push_name)) = 'você'")
                     ->orWhereRaw("LOWER(TRIM(push_name)) = 'voce'")
                     ->orWhereRaw("LOWER(TRIM(name)) = 'você'")
-                    ->orWhereRaw("LOWER(TRIM(name)) = 'voce'");
+                    ->orWhereRaw("LOWER(TRIM(name)) = 'voce'")
+                    // ⭐ Fake phone numbers: LID identifiers that look numeric but aren't Colombian
+                    // Colombian phones: 57 + 10 digits = 12 digits. Anything else is likely a LID.
+                    ->orWhere(function ($q) {
+                        $q->whereRaw("phone_number NOT REGEXP '^57[0-9]{10}$'")
+                          ->whereRaw("phone_number REGEXP '^[0-9]+$'") // Only numeric phone_numbers (skip group JIDs)
+                          ->whereRaw("LENGTH(phone_number) >= 10");    // Only long enough to be confused with a phone
+                    });
             })
             ->get();
 
@@ -1719,17 +1726,10 @@ class Index extends Component
                 }
             }
         } else {
-            // ⭐ INDIVIDUAL MESSAGE HANDLING (existing LID logic)
+            // ⭐ INDIVIDUAL MESSAGE HANDLING
         
-        // Check if this is a LID (contains @lid or has : in the identifier)
-        $isLid = str_contains($remoteJid, '@lid') || str_contains($jidPart, ':');
-        
-        // For LID JIDs, extract just the numeric part before any ':'
+        // Extract the identifier from JID
         $cleanJidPart = explode(':', $jidPart)[0];
-        
-        // Determine if this looks like a real phone number
-        // Real phone numbers: 10-15 digits, start with country code (1-9)
-        $isRealPhoneNumber = preg_match('/^[1-9]\d{9,14}$/', $cleanJidPart);
         
         $phoneNumber = null;
         
@@ -1742,48 +1742,31 @@ class Index extends Component
             if ($isAltRealPhone) {
                 $phoneNumber = $cleanAltPart;
                 
-                // ⭐ AUTO-CREATE LID MAPPING if remoteJid is a LID
-                if ($isLid && !$isRealPhoneNumber) {
+                // ⭐ AUTO-CREATE LID MAPPING if remoteJid is different
+                if ($cleanJidPart !== $cleanAltPart) {
                     \App\Models\LidMapping::createMapping($cleanJidPart, $phoneNumber, $messageId, $channel->id);
-                    Log::info('LID mapping created from sync remoteJidAlt', [
-                        'lid' => $cleanJidPart,
-                        'phone' => $phoneNumber,
-                        'messageId' => $messageId,
-                    ]);
                 }
             }
         }
         
-        // ⭐ PRIORITY 2: If no phone from remoteJidAlt, check if remoteJid itself is a real phone
-        if (!$phoneNumber && $isRealPhoneNumber) {
+        // ⭐ PRIORITY 2: Check LID mapping table
+        if (!$phoneNumber) {
+            $mapped = \App\Models\LidMapping::findPhoneByLid($cleanJidPart);
+            if ($mapped) {
+                $phoneNumber = $mapped;
+            }
+        }
+        
+        // ⭐ PRIORITY 3: Use JID number only if it matches valid Colombian phone format
+        // LID identifiers can look numeric (e.g., 12034548703442) but aren't real phones.
+        // Colombian numbers: 57 + 10 digits = 12 digits exactly.
+        if (!$phoneNumber && preg_match('/^57\d{10}$/', $cleanJidPart)) {
             $phoneNumber = $cleanJidPart;
         }
         
-        // ⭐ PRIORITY 3: Check LID mapping table
-        if (!$phoneNumber && $isLid && !$isRealPhoneNumber) {
-            $phoneNumber = \App\Models\LidMapping::findPhoneByLid($cleanJidPart);
-            
-            if ($phoneNumber) {
-                Log::debug('LID resolved from mapping table', [
-                    'lid' => $cleanJidPart,
-                    'phone' => $phoneNumber,
-                ]);
-            }
-        }
-        
-        // ⭐ PRIORITY 4: Last resort - use whatever we have
+        // If we couldn't resolve a real phone number, skip this message
         if (!$phoneNumber) {
-            if ($isRealPhoneNumber) {
-                $phoneNumber = $cleanJidPart;
-            } else {
-                // This is a true LID with no mapping - skip
-                Log::debug('Skipping LID message - no mapping found', [
-                    'remoteJid' => $remoteJid,
-                    'remoteJidAlt' => $remoteJidAlt,
-                    'lid' => $cleanJidPart,
-                ]);
-                return false;
-            }
+            return false;
         }
 
         // Minimal validation - just ensure we have something

@@ -149,6 +149,11 @@ class WebhookController extends Controller
             // Process the incoming message
             $message = $this->messageService->processIncomingMessage($payload);
             
+            // If message was skipped (e.g., unresolvable LID contact), return early
+            if (!$message) {
+                return response()->json(['status' => 'skipped', 'reason' => 'unresolvable_contact']);
+            }
+            
             // Create notification for users assigned to this channel
             $this->notificationService->createMessageNotification($message);
             

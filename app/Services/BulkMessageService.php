@@ -249,13 +249,15 @@ class BulkMessageService
             // Crear el mensaje
             Message::create([
                 'contact_id' => $contact->id,
+                'channel_id' => $channel->id,
                 'message_id' => $messageId ?? ('bulk_' . uniqid()),
-                'from_me' => true,
-                'message_type' => 'text',
+                'direction' => 'outgoing',
+                'type' => 'text',
                 'content' => $message,
                 'status' => 'sent',
+                'is_read' => true,
                 'user_id' => $userId,
-                'created_at' => now(),
+                'sent_at' => now(),
             ]);
 
             // Actualizar última actividad del contacto

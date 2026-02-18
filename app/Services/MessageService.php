@@ -97,7 +97,7 @@ class MessageService
      * 
      * IMPORTANT: Handles LID JIDs using remoteJidAlt field from Evolution API.
      */
-    public function processIncomingMessage(array $webhookData): Message
+    public function processIncomingMessage(array $webhookData): ?Message
     {
         $instanceName = $webhookData['instance'] ?? null;
         $data = $webhookData['data'] ?? [];
@@ -181,48 +181,49 @@ class MessageService
                 }
             }
         } else {
-            // ⭐ INDIVIDUAL MESSAGE HANDLING (existing logic)
+            // ⭐ INDIVIDUAL MESSAGE HANDLING
             $phoneNumber = null;
             
             // Extract from primary JID
             $jidPart = explode('@', $remoteJid)[0];
             $cleanJidPart = explode(':', $jidPart)[0];
-            $isRealPhone = preg_match('/^[1-9]\d{9,14}$/', $cleanJidPart);
             
-            if ($isRealPhone) {
-                $phoneNumber = $cleanJidPart;
-            } elseif ($remoteJidAlt) {
+            // ⭐ PRIORITY 1: Check remoteJidAlt first (Evolution API sends real phone here when remoteJid is a LID)
+            if ($remoteJidAlt) {
                 $altJidPart = explode('@', $remoteJidAlt)[0];
                 $cleanAltPart = explode(':', $altJidPart)[0];
-                $isAltRealPhone = preg_match('/^[1-9]\d{9,14}$/', $cleanAltPart);
-                
-                if ($isAltRealPhone) {
+                if (preg_match('/^[1-9]\d{9,14}$/', $cleanAltPart)) {
                     $phoneNumber = $cleanAltPart;
-                    Log::info('Using remoteJidAlt for phone number', [
-                        'remoteJid' => $remoteJid,
-                        'remoteJidAlt' => $remoteJidAlt,
-                        'phone' => $phoneNumber,
-                    ]);
+                    // Auto-create LID mapping if the primary JID is different
+                    if ($cleanJidPart !== $cleanAltPart) {
+                        \App\Models\LidMapping::createMapping($cleanJidPart, $phoneNumber, $messageId, $channel->id);
+                    }
                 }
             }
             
+            // ⭐ PRIORITY 2: Check LID mapping table
             if (!$phoneNumber) {
-                $phoneNumber = \App\Models\LidMapping::findPhoneByLid($cleanJidPart);
-                if ($phoneNumber) {
-                    Log::info('Resolved LID from mapping table', [
-                        'lid' => $cleanJidPart,
-                        'phone' => $phoneNumber,
-                    ]);
+                $mapped = \App\Models\LidMapping::findPhoneByLid($cleanJidPart);
+                if ($mapped) {
+                    $phoneNumber = $mapped;
                 }
             }
             
-            if (!$phoneNumber) {
+            // ⭐ PRIORITY 3: Use JID number only if it matches a valid Colombian phone format
+            // LID identifiers can look numeric (e.g., 12034548703442) but aren't real phones.
+            // Colombian numbers: 57 + 10 digits = 12 digits exactly.
+            if (!$phoneNumber && preg_match('/^57\d{10}$/', $cleanJidPart)) {
                 $phoneNumber = $cleanJidPart;
-                Log::warning('Could not resolve real phone number', [
+            }
+            
+            // If we couldn't resolve a real phone number, skip this message
+            if (!$phoneNumber) {
+                Log::debug('Skipping message - unresolvable phone number (likely LID)', [
                     'remoteJid' => $remoteJid,
                     'remoteJidAlt' => $remoteJidAlt,
-                    'using' => $phoneNumber,
+                    'jidPart' => $cleanJidPart,
                 ]);
+                return null;
             }
             
             $standardJid = $phoneNumber . '@s.whatsapp.net';
