@@ -202,8 +202,7 @@ class EvolutionApiService
     {
         $url = $webhookUrl ?? rtrim(config('app.url'), '/') . '/api/webhook/evolution';
 
-        // Evolution API v2 format — flat body, NOT nested in "webhook" key
-        $response = $this->request()->post("/webhook/set/{$instanceName}", [
+        $webhookData = [
             'enabled' => true,
             'url' => $url,
             'webhookByEvents' => false,
@@ -216,7 +215,17 @@ class EvolutionApiService
                 'CONNECTION_UPDATE',
                 'QRCODE_UPDATED',
             ],
+        ];
+
+        // Intentar formato anidado primero (algunas versiones de Evolution API lo requieren)
+        $response = $this->request()->post("/webhook/set/{$instanceName}", [
+            'webhook' => $webhookData,
         ]);
+
+        // Si falla con formato anidado, intentar formato plano
+        if (!$response->successful()) {
+            $response = $this->request()->post("/webhook/set/{$instanceName}", $webhookData);
+        }
 
         return $this->handleResponse($response);
     }
