@@ -26,26 +26,33 @@ class RolesAndPermissionsSeeder extends Seeder
         $actions = Module::getActions();
 
         foreach ($modules as $moduleData) {
-            $module = Module::create($moduleData);
+            $module = Module::firstOrCreate(
+                ['name' => $moduleData['name']],
+                $moduleData
+            );
 
             // Crear permisos para cada módulo
             foreach ($actions as $actionKey => $actionName) {
-                Permission::create([
-                    'module_id' => $module->id,
-                    'name' => $module->name . '.' . $actionKey,
-                    'display_name' => $actionName . ' ' . $module->display_name,
-                    'action' => $actionKey,
-                ]);
+                Permission::firstOrCreate(
+                    ['name' => $module->name . '.' . $actionKey],
+                    [
+                        'module_id' => $module->id,
+                        'display_name' => $actionName . ' ' . $module->display_name,
+                        'action' => $actionKey,
+                    ]
+                );
             }
         }
 
         // Crear módulo de Chats con permisos personalizados
-        $chatsModule = Module::create([
-            'name' => 'chats',
-            'display_name' => 'Chats',
-            'icon' => 'message-circle',
-            'order' => 8,
-        ]);
+        $chatsModule = Module::firstOrCreate(
+            ['name' => 'chats'],
+            [
+                'display_name' => 'Chats',
+                'icon' => 'message-circle',
+                'order' => 8,
+            ]
+        );
 
         // Permisos específicos del módulo de chat
         $chatPermissions = [
@@ -55,31 +62,37 @@ class RolesAndPermissionsSeeder extends Seeder
         ];
 
         foreach ($chatPermissions as $permData) {
-            Permission::create([
-                'module_id' => $chatsModule->id,
-                'name' => 'chats.' . $permData['action'],
-                'display_name' => $permData['display_name'],
-                'action' => $permData['action'],
-            ]);
+            Permission::firstOrCreate(
+                ['name' => 'chats.' . $permData['action']],
+                [
+                    'module_id' => $chatsModule->id,
+                    'display_name' => $permData['display_name'],
+                    'action' => $permData['action'],
+                ]
+            );
         }
 
         // Crear rol de Administrador con todos los permisos
-        $adminRole = Role::create([
-            'name' => 'admin',
-            'display_name' => 'Administrador',
-            'description' => 'Acceso total al sistema',
-            'color' => '#ef4444',
-        ]);
+        $adminRole = Role::firstOrCreate(
+            ['name' => 'admin'],
+            [
+                'display_name' => 'Administrador',
+                'description' => 'Acceso total al sistema',
+                'color' => '#ef4444',
+            ]
+        );
 
-        $adminRole->permissions()->attach(Permission::all());
+        $adminRole->permissions()->syncWithoutDetaching(Permission::pluck('id'));
 
         // Crear rol de Usuario básico
-        $userRole = Role::create([
-            'name' => 'usuario',
-            'display_name' => 'Usuario',
-            'description' => 'Acceso básico al sistema',
-            'color' => '#3b82f6',
-        ]);
+        $userRole = Role::firstOrCreate(
+            ['name' => 'usuario'],
+            [
+                'display_name' => 'Usuario',
+                'description' => 'Acceso básico al sistema',
+                'color' => '#3b82f6',
+            ]
+        );
 
         // Asignar permisos básicos al usuario
         $basicPermissions = Permission::whereIn('name', [
@@ -88,7 +101,7 @@ class RolesAndPermissionsSeeder extends Seeder
             'cobranzas.ver',
         ])->get();
 
-        $userRole->permissions()->attach($basicPermissions);
+        $userRole->permissions()->syncWithoutDetaching($basicPermissions->pluck('id'));
 
         // Asignar rol admin al primer usuario
         $admin = User::first();
