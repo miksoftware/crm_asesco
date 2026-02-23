@@ -28,16 +28,33 @@ class EvolutionApiService
 
     public function createInstance(string $instanceName, array $options = []): array
     {
+        // Build webhook URL for automatic configuration at creation time
+        $webhookUrl = rtrim(config('app.url'), '/') . '/api/webhook/evolution';
+
         $data = array_merge([
             'instanceName' => $instanceName,
             'integration' => 'WHATSAPP-BAILEYS',
             'qrcode' => true,
             'rejectCall' => false,
-            'groupsIgnore' => false,
+            'groupsIgnore' => true,
             'alwaysOnline' => false,
             'readMessages' => false,
             'readStatus' => false,
             'syncFullHistory' => false,
+            'webhook' => [
+                'url' => $webhookUrl,
+                'byEvents' => false,
+                'base64' => true,
+                'headers' => [],
+                'events' => [
+                    'MESSAGES_UPSERT',
+                    'MESSAGES_UPDATE',
+                    'MESSAGES_DELETE',
+                    'SEND_MESSAGE',
+                    'CONNECTION_UPDATE',
+                    'QRCODE_UPDATED',
+                ],
+            ],
         ], $options);
 
         $response = $this->request()->post('/instance/create', $data);
@@ -91,7 +108,8 @@ class EvolutionApiService
 
     public function restartInstance(string $instanceName): array
     {
-        $response = $this->request()->post("/instance/restart/{$instanceName}");
+        // Evolution API v2: PUT /instance/restart/{instance}
+        $response = $this->request()->put("/instance/restart/{$instanceName}");
 
         return $this->handleResponse($response);
     }
@@ -182,21 +200,21 @@ class EvolutionApiService
      */
     public function setWebhook(string $instanceName, ?string $webhookUrl = null): array
     {
-        $url = $webhookUrl ?? url('/api/webhook/evolution');
+        $url = $webhookUrl ?? rtrim(config('app.url'), '/') . '/api/webhook/evolution';
 
-        // Evolution API v2.3.7 format - requires "webhook" wrapper
+        // Evolution API v2 format — flat body, NOT nested in "webhook" key
         $response = $this->request()->post("/webhook/set/{$instanceName}", [
-            'webhook' => [
-                'enabled' => true,
-                'url' => $url,
-                'webhookByEvents' => false,
-                'webhookBase64' => true,
-                'events' => [
-                    'MESSAGES_UPSERT',
-                    'MESSAGES_UPDATE', 
-                    'CONNECTION_UPDATE',
-                    'SEND_MESSAGE',
-                ],
+            'enabled' => true,
+            'url' => $url,
+            'webhookByEvents' => false,
+            'webhookBase64' => true,
+            'events' => [
+                'MESSAGES_UPSERT',
+                'MESSAGES_UPDATE',
+                'MESSAGES_DELETE',
+                'SEND_MESSAGE',
+                'CONNECTION_UPDATE',
+                'QRCODE_UPDATED',
             ],
         ]);
 
@@ -218,13 +236,13 @@ class EvolutionApiService
      */
     public function fetchMessages(string $instanceName, string $remoteJid, int $count = 50): array
     {
-        $response = $this->request()->post("/chat/fetchMessages/{$instanceName}", [
+        // Evolution API v2: POST /chat/findMessages/{instance}
+        $response = $this->request()->post("/chat/findMessages/{$instanceName}", [
             'where' => [
                 'key' => [
                     'remoteJid' => $remoteJid,
                 ],
             ],
-            'limit' => $count,
         ]);
 
         return $this->handleResponse($response);
@@ -235,6 +253,7 @@ class EvolutionApiService
      */
     public function fetchChats(string $instanceName): array
     {
+        // Evolution API v2: POST /chat/findChats/{instance}
         $response = $this->request()->post("/chat/findChats/{$instanceName}", []);
 
         return $this->handleResponse($response);
@@ -245,6 +264,7 @@ class EvolutionApiService
      */
     public function fetchContacts(string $instanceName): array
     {
+        // Evolution API v2: POST /chat/findContacts/{instance}
         $response = $this->request()->post("/chat/findContacts/{$instanceName}", []);
 
         return $this->handleResponse($response);
@@ -255,6 +275,7 @@ class EvolutionApiService
      */
     public function fetchAllMessages(string $instanceName, int $page = 1, int $limit = 100): array
     {
+        // Evolution API v2: POST /chat/findMessages/{instance}
         $response = $this->request()->post("/chat/findMessages/{$instanceName}", [
             'page' => $page,
             'offset' => $limit,
@@ -268,14 +289,13 @@ class EvolutionApiService
      */
     public function getMediaBase64(string $instanceName, string $messageId, string $remoteJid): array
     {
+        // Evolution API v2: only message.key.id is required
         $response = $this->request()
             ->timeout(60)
             ->post("/chat/getBase64FromMediaMessage/{$instanceName}", [
                 'message' => [
                     'key' => [
                         'id' => $messageId,
-                        'remoteJid' => $remoteJid,
-                        'fromMe' => false,
                     ],
                 ],
                 'convertToMp4' => false,

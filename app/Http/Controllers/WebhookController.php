@@ -69,6 +69,10 @@ class WebhookController extends Controller
         try {
             $event = $payload['event'] ?? '';
             
+            // Evolution API sends events in lowercase dot notation: messages.upsert
+            // Normalize just in case
+            $event = strtolower(str_replace('_', '.', $event));
+            
             return match ($event) {
                 'messages.upsert' => $this->processMessageReceived($payload),
                 'messages.update' => $this->processMessageStatus($payload),

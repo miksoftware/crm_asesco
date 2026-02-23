@@ -233,18 +233,25 @@ class BulkMessageService
         try {
             $remoteJid = $phoneNumber . '@s.whatsapp.net';
             
-            // Buscar o crear el contacto
-            $contact = Contact::firstOrCreate(
-                [
+            // Buscar contacto por phone_number (consistente con MessageService y Chat)
+            $contact = Contact::where('channel_id', $channel->id)
+                ->where('phone_number', $phoneNumber)
+                ->first();
+
+            if (!$contact) {
+                $contact = Contact::create([
                     'channel_id' => $channel->id,
-                    'remote_jid' => $remoteJid,
-                ],
-                [
                     'phone_number' => $phoneNumber,
+                    'remote_jid' => $remoteJid,
                     'name' => null,
                     'push_name' => null,
-                ]
-            );
+                    'labels' => [],
+                    'metadata' => [],
+                ]);
+            } elseif (!$contact->remote_jid) {
+                // Si el contacto existe pero no tiene remote_jid, actualizarlo
+                $contact->update(['remote_jid' => $remoteJid]);
+            }
 
             // Crear el mensaje
             Message::create([

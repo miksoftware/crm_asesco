@@ -28,7 +28,7 @@ class Create extends Component
 
         $api = new EvolutionApiService();
 
-        // Crear instancia en Evolution API
+        // Crear instancia en Evolution API (webhook se configura automáticamente)
         $result = $api->createInstance($this->instance_name);
 
         if (!$result['success']) {
@@ -48,6 +48,17 @@ class Create extends Component
 
         if (!empty($this->selectedUsers)) {
             $channel->users()->sync($this->selectedUsers);
+        }
+
+        // Configurar webhook por separado como respaldo
+        // (ya se configura en createInstance, pero por si acaso)
+        try {
+            $api->setWebhook($this->instance_name);
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::warning('Error setting webhook as backup', [
+                'instance' => $this->instance_name,
+                'error' => $e->getMessage(),
+            ]);
         }
 
         session()->flash('toast', ['type' => 'success', 'message' => 'Canal creado correctamente']);
