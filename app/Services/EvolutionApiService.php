@@ -202,29 +202,41 @@ class EvolutionApiService
     {
         $url = $webhookUrl ?? rtrim(config('app.url'), '/') . '/api/webhook/evolution';
 
-        $webhookData = [
-            'enabled' => true,
-            'url' => $url,
-            'webhookByEvents' => false,
-            'webhookBase64' => true,
-            'events' => [
-                'MESSAGES_UPSERT',
-                'MESSAGES_UPDATE',
-                'MESSAGES_DELETE',
-                'SEND_MESSAGE',
-                'CONNECTION_UPDATE',
-                'QRCODE_UPDATED',
-            ],
+        $events = [
+            'MESSAGES_UPSERT',
+            'MESSAGES_UPDATE',
+            'MESSAGES_DELETE',
+            'SEND_MESSAGE',
+            'CONNECTION_UPDATE',
+            'QRCODE_UPDATED',
+            'CONTACTS_UPSERT',
+            'CONTACTS_UPDATE',
+            'CHATS_UPSERT',
+            'CHATS_UPDATE',
+            'MESSAGES_SET',
         ];
 
-        // Intentar formato anidado primero (algunas versiones de Evolution API lo requieren)
+        // Intentar formato anidado (requerido por algunas versiones de Evolution API)
         $response = $this->request()->post("/webhook/set/{$instanceName}", [
-            'webhook' => $webhookData,
+            'webhook' => [
+                'enabled' => true,
+                'url' => $url,
+                'byEvents' => false,
+                'base64' => true,
+                'headers' => [],
+                'events' => $events,
+            ],
         ]);
 
         // Si falla con formato anidado, intentar formato plano
         if (!$response->successful()) {
-            $response = $this->request()->post("/webhook/set/{$instanceName}", $webhookData);
+            $response = $this->request()->post("/webhook/set/{$instanceName}", [
+                'enabled' => true,
+                'url' => $url,
+                'webhookByEvents' => false,
+                'webhookBase64' => true,
+                'events' => $events,
+            ]);
         }
 
         return $this->handleResponse($response);
@@ -236,6 +248,35 @@ class EvolutionApiService
     public function getWebhook(string $instanceName): array
     {
         $response = $this->request()->get("/webhook/find/{$instanceName}");
+
+        return $this->handleResponse($response);
+    }
+
+    /**
+     * Update instance settings (syncFullHistory, readMessages, etc.)
+     */
+    public function setSettings(string $instanceName, array $settings = []): array
+    {
+        $data = array_merge([
+            'rejectCall' => false,
+            'groupsIgnore' => false,
+            'alwaysOnline' => false,
+            'readMessages' => false,
+            'readStatus' => false,
+            'syncFullHistory' => true,
+        ], $settings);
+
+        $response = $this->request()->post("/settings/set/{$instanceName}", $data);
+
+        return $this->handleResponse($response);
+    }
+
+    /**
+     * Get current instance settings.
+     */
+    public function getSettings(string $instanceName): array
+    {
+        $response = $this->request()->get("/settings/find/{$instanceName}");
 
         return $this->handleResponse($response);
     }
