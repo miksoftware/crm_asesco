@@ -50,12 +50,12 @@ class Create extends Component
             $channel->users()->sync($this->selectedUsers);
         }
 
-        // Configurar webhook por separado como respaldo
-        // (ya se configura en createInstance, pero por si acaso)
+        // Configurar settings, webhook y websocket por separado
+        // (createInstance puede no aplicar todo correctamente)
         try {
-            $api->setWebhook($this->instance_name);
+            $api->configureInstance($this->instance_name);
         } catch (\Exception $e) {
-            \Illuminate\Support\Facades\Log::warning('Error setting webhook as backup', [
+            \Illuminate\Support\Facades\Log::warning('Error configurando instancia post-creación', [
                 'instance' => $this->instance_name,
                 'error' => $e->getMessage(),
             ]);

@@ -287,6 +287,66 @@ class EvolutionApiService
     }
 
     /**
+     * Configurar WebSocket para una instancia de Evolution API.
+     * Habilita la emisión de eventos via socket.io para esa instancia.
+     */
+    public function setWebsocket(string $instanceName, bool $enabled = true, ?array $events = null): array
+    {
+        $websocketEvents = $events ?? [
+            'MESSAGES_UPSERT',
+            'MESSAGES_UPDATE',
+            'MESSAGES_DELETE',
+            'SEND_MESSAGE',
+            'CONNECTION_UPDATE',
+            'QRCODE_UPDATED',
+            'CONTACTS_UPSERT',
+            'CONTACTS_UPDATE',
+            'CHATS_UPSERT',
+            'CHATS_UPDATE',
+        ];
+
+        // Intentar POST /websocket/set/{instance} (formato directo)
+        $response = $this->request()->post("/websocket/set/{$instanceName}", [
+            'enabled' => $enabled,
+            'events' => $websocketEvents,
+        ]);
+
+        // Fallback: via /instance/update (algunas versiones)
+        if (!$response->successful()) {
+            $response = $this->request()->put("/instance/update/{$instanceName}", [
+                'websocket' => [
+                    'enabled' => $enabled,
+                    'events' => $websocketEvents,
+                ],
+            ]);
+        }
+
+        return $this->handleResponse($response);
+    }
+
+    /**
+     * Configurar completamente una instancia después de crearla.
+     * Aplica settings, webhook y websocket en llamadas separadas
+     * para asegurar que Evolution API los procese correctamente.
+     */
+    public function configureInstance(string $instanceName): array
+    {
+        $results = [];
+
+        // 1. Configurar settings (syncFullHistory, etc.)
+        $results['settings'] = $this->setSettings($instanceName);
+
+        // 2. Configurar webhook
+        $results['webhook'] = $this->setWebhook($instanceName);
+
+        // 3. Configurar websocket
+        $results['websocket'] = $this->setWebsocket($instanceName);
+
+        return $results;
+    }
+
+
+    /**
      * Get current instance settings.
      */
     public function getSettings(string $instanceName): array

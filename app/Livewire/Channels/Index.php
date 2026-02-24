@@ -225,30 +225,41 @@ class Index extends Component
             }
         }
 
-        // Configurar webhook automáticamente para recibir mensajes
-        $this->setupWebhook($channel, $api);
+        // Configurar instancia completa: settings + webhook + websocket
+        $this->configureChannelInstance($channel, $api);
     }
 
     /**
-     * Configure webhook in Evolution API to receive messages.
+     * Configurar completamente una instancia de Evolution API.
+     * Aplica settings (syncFullHistory), webhook y websocket por separado
+     * para asegurar que Evolution API los procese correctamente.
      */
-    protected function setupWebhook(Channel $channel, EvolutionApiService $api): void
+    protected function configureChannelInstance(Channel $channel, EvolutionApiService $api): void
     {
+        $instanceName = $channel->instance_name;
+
+        // 1. Settings: syncFullHistory, groupsIgnore, etc.
+        $settingsResult = $api->setSettings($instanceName);
+        \Illuminate\Support\Facades\Log::info("Settings configurados para {$instanceName}", [
+            'success' => $settingsResult['success'] ?? false,
+            'error' => $settingsResult['error'] ?? null,
+        ]);
+
+        // 2. Webhook
         $webhookUrl = config('app.url') . '/api/webhook/evolution';
-        
-        $result = $api->setWebhook($channel->instance_name, $webhookUrl);
-        
-        if ($result['success']) {
-            \Illuminate\Support\Facades\Log::info("Webhook configured for channel {$channel->name}", [
-                'channel_id' => $channel->id,
-                'webhook_url' => $webhookUrl,
-            ]);
-        } else {
-            \Illuminate\Support\Facades\Log::warning("Failed to configure webhook for channel {$channel->name}", [
-                'channel_id' => $channel->id,
-                'error' => $result['error'] ?? 'Unknown error',
-            ]);
-        }
+        $webhookResult = $api->setWebhook($instanceName, $webhookUrl);
+        \Illuminate\Support\Facades\Log::info("Webhook configurado para {$instanceName}", [
+            'success' => $webhookResult['success'] ?? false,
+            'url' => $webhookUrl,
+            'error' => $webhookResult['error'] ?? null,
+        ]);
+
+        // 3. WebSocket: habilitar eventos para tiempo real
+        $wsResult = $api->setWebsocket($instanceName);
+        \Illuminate\Support\Facades\Log::info("WebSocket configurado para {$instanceName}", [
+            'success' => $wsResult['success'] ?? false,
+            'error' => $wsResult['error'] ?? null,
+        ]);
     }
 
     public function disconnect(int $id): void

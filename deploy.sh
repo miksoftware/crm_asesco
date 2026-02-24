@@ -168,7 +168,7 @@ echo ""
 # Configurar webhooks de Evolution API
 # ==========================================
 echo -e "${YELLOW}[Extra] 🔗 Configurando webhooks de Evolution API...${NC}"
-docker exec -w /var/www/html ${PROJECT_NAME}_php php artisan channels:setup-webhooks 2>&1
+docker exec -w /var/www/html ${PROJECT_NAME}_php php artisan channels:setup-webhooks --full 2>&1
 echo -e "${GREEN}✓ Webhooks configurados${NC}"
 echo ""
 
