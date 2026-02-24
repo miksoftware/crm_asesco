@@ -117,9 +117,43 @@ echo -e "${YELLOW}[9/9] 🔄 Reiniciando servicios...${NC}"
 docker exec -w /var/www/html ${PROJECT_NAME}_php php artisan queue:restart 2>/dev/null || true
 
 cd "$PROJECT_DIR"
-docker compose restart php nginx
+
+# Reiniciar todos los servicios (incluyendo reverb y evolution-listener)
+docker compose restart php nginx 2>&1
+# Reiniciar servicios de WebSocket (si existen)
+docker compose restart reverb evolution-listener 2>/dev/null || true
 sleep 3
 echo -e "${GREEN}✓ Servicios reiniciados${NC}"
+echo ""
+
+# ==========================================
+# Verificar servicios de WebSocket
+# ==========================================
+echo -e "${YELLOW}[Extra] � Verificando servicios de WebSocket...${NC}"
+
+# Verificar que Reverb está corriendo
+if docker ps --format '{{.Names}}' | grep -q "${PROJECT_NAME}_reverb"; then
+    echo -e "${GREEN}  ✓ Reverb (WebSocket server) corriendo${NC}"
+else
+    echo -e "${YELLOW}  ⚠️  Reverb no está corriendo. Ejecutar: docker compose up -d reverb${NC}"
+fi
+
+# Verificar que Evolution Listener está corriendo
+if docker ps --format '{{.Names}}' | grep -q "${PROJECT_NAME}_evolution_listener"; then
+    echo -e "${GREEN}  ✓ Evolution Listener corriendo${NC}"
+else
+    echo -e "${YELLOW}  ⚠️  Evolution Listener no está corriendo. Ejecutar: docker compose up -d evolution-listener${NC}"
+fi
+
+# Verificar Node.js disponible para el listener
+if docker exec ${PROJECT_NAME}_evolution_listener node --version 2>/dev/null; then
+    echo -e "${GREEN}  ✓ Node.js disponible en evolution-listener${NC}"
+elif docker exec ${PROJECT_NAME}_php node --version 2>/dev/null; then
+    echo -e "${GREEN}  ✓ Node.js disponible en php${NC}"
+else
+    echo -e "${RED}  ✗ Node.js NO disponible. evolution:listen no funcionará.${NC}"
+    echo -e "${RED}    Agregar Node.js al Dockerfile del contenedor PHP.${NC}"
+fi
 echo ""
 
 # ==========================================

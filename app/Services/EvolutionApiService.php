@@ -216,26 +216,29 @@ class EvolutionApiService
             'MESSAGES_SET',
         ];
 
-        // Intentar formato anidado (requerido por algunas versiones de Evolution API)
+        // Evolution API v2.3: formato con propiedad "webhook" en el nivel raíz
         $response = $this->request()->post("/webhook/set/{$instanceName}", [
             'webhook' => [
                 'enabled' => true,
                 'url' => $url,
                 'byEvents' => false,
                 'base64' => true,
-                'headers' => [],
+                'headers' => (object) [],
                 'events' => $events,
             ],
         ]);
 
-        // Si falla con formato anidado, intentar formato plano
+        // Fallback: Evolution API v2.x formato alternativo (endpoint /instance/update)
         if (!$response->successful()) {
-            $response = $this->request()->post("/webhook/set/{$instanceName}", [
-                'enabled' => true,
-                'url' => $url,
-                'webhookByEvents' => false,
-                'webhookBase64' => true,
-                'events' => $events,
+            $response = $this->request()->put("/instance/update/{$instanceName}", [
+                'webhook' => [
+                    'enabled' => true,
+                    'url' => $url,
+                    'byEvents' => false,
+                    'base64' => true,
+                    'headers' => (object) [],
+                    'events' => $events,
+                ],
             ]);
         }
 
