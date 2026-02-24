@@ -108,8 +108,8 @@ class EvolutionApiService
 
     public function restartInstance(string $instanceName): array
     {
-        // Evolution API v2: PUT /instance/restart/{instance}
-        $response = $this->request()->put("/instance/restart/{$instanceName}");
+        // Evolution API: POST /instance/restart/{instance}
+        $response = $this->request()->post("/instance/restart/{$instanceName}");
 
         return $this->handleResponse($response);
     }

@@ -338,6 +338,9 @@ class Index extends Component
         $this->quickFilter = 'all'; // Reset quick filter when changing channel
         $this->resetMessages();
         unset($this->conversations);
+
+        // Notificar al frontend para suscribirse al nuevo canal via WebSocket
+        $this->dispatch('channel-changed', channelId: $channelId);
     }
 
     public function selectConversation(int $contactId): void
@@ -345,6 +348,9 @@ class Index extends Component
         $this->selectedContactId = $contactId;
         $this->resetMessages();
         $this->markAsRead($contactId);
+
+        // Notificar al frontend para suscribirse a la conversación via WebSocket
+        $this->dispatch('contact-changed', contactId: $contactId);
     }
 
     public function sendMessage(): void

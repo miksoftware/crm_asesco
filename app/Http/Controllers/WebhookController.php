@@ -141,6 +141,17 @@ class WebhookController extends Controller
             return response()->json(['status' => 'skipped', 'reason' => 'reaction']);
         }
 
+        // Deduplicación: verificar si ya fue procesado por WebSocket
+        $externalMessageId = $data['key']['id'] ?? null;
+        if ($externalMessageId) {
+            $dedupeKey = "msg_processed:upsert:{$externalMessageId}";
+            if (Cache::has($dedupeKey)) {
+                return response()->json(['status' => 'skipped', 'reason' => 'already_processed_by_ws']);
+            }
+            // Marcar como procesado para que el WebSocket lo ignore si llega después
+            Cache::put($dedupeKey, true, 60);
+        }
+
         // Skip protocol messages (except revoke/delete)
         if (isset($data['message']['protocolMessage'])) {
             $protoType = $data['message']['protocolMessage']['type'] ?? null;
@@ -229,6 +240,15 @@ class WebhookController extends Controller
             return response()->json(['status' => 'skipped', 'reason' => 'missing_message_id']);
         }
 
+        // Deduplicación: verificar si ya fue procesado por WebSocket
+        if ($status) {
+            $dedupeKey = "msg_processed:status:{$messageId}:{$status}";
+            if (Cache::has($dedupeKey)) {
+                return response()->json(['status' => 'skipped', 'reason' => 'already_processed_by_ws']);
+            }
+            Cache::put($dedupeKey, true, 60);
+        }
+
         // ⭐ LID MAPPING LOGIC
         // When we receive a status update, check if we can create a LID mapping
         if ($remoteJid && $messageId) {
@@ -296,8 +316,23 @@ class WebhookController extends Controller
             };
 
             if ($mappedStatus) {
-                \App\Models\Message::where('message_id', $messageId)
-                    ->update(['status' => $mappedStatus]);
+                $updatedMessage = \App\Models\Message::where('message_id', $messageId)->first();
+                if ($updatedMessage) {
+                    $updatedMessage->update(['status' => $mappedStatus]);
+
+                    // Emitir evento de Broadcasting para actualizar checks en el frontend
+                    try {
+                        broadcast(new \App\Events\MessageStatusUpdated(
+                            messageId: $updatedMessage->id,
+                            externalMessageId: $messageId,
+                            status: $mappedStatus,
+                            contactId: $updatedMessage->contact_id,
+                            channelId: $updatedMessage->channel_id,
+                        ));
+                    } catch (\Exception $e) {
+                        // Broadcasting no disponible, no es crítico
+                    }
+                }
             }
         }
 
@@ -476,8 +511,16 @@ class WebhookController extends Controller
      */
     private function broadcastNewMessage(\App\Models\Message $message): void
     {
-        // Dispatch Livewire event for real-time updates
-        // This will be picked up by the Chat\Index and NotificationBadge components
+        // Dispatch evento interno de Laravel (para listeners como BroadcastNewMessage)
         event(new \App\Events\NewMessageReceived($message));
+
+        // Emitir evento de Broadcasting para el frontend en tiempo real (Reverb)
+        try {
+            broadcast(new \App\Events\NewWhatsAppMessage($message));
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::debug('Broadcasting no disponible', [
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 }

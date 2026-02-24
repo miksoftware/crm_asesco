@@ -1,6 +1,6 @@
 <div class="h-[calc(100vh-5rem)] flex flex-col overflow-hidden" 
      x-data="{ showContactInfo: false, imageModal: { open: false, url: '' }, openImage(url) { this.imageModal.url = url; this.imageModal.open = true; }, closeImage() { this.imageModal.open = false; this.imageModal.url = ''; }, downloadImage() { const a = document.createElement('a'); a.href = this.imageModal.url; a.download = this.imageModal.url.split('/').pop() || 'imagen'; a.click(); } }"
-     wire:poll.10s="refreshUnreadCounts">
+     wire:poll.30s="refreshUnreadCounts">
     @if($this->channels->isEmpty())
         <div class="flex-1 flex items-center justify-center bg-gray-50">
             <div class="text-center">
@@ -305,7 +305,7 @@
                              },
                              checkNewMessages() { const c = @js(count($this->messages)); if (c > this.lastMessageCount && !this.userScrolledUp) this.scrollToBottom(); this.lastMessageCount = c; }
                          }"
-                         x-init="scrollToBottom()" @scroll.debounce.100ms="handleScroll()" x-effect="checkNewMessages()" wire:poll.visible.5s="refreshActiveChat">
+                         x-init="scrollToBottom()" @scroll.debounce.100ms="handleScroll()" x-effect="checkNewMessages()" wire:poll.visible.30s="refreshActiveChat">
                         
                         @if($hasMoreMessages)
                             <div class="text-center mb-2">
@@ -1100,4 +1100,60 @@
             </div>
         </div>
     @endteleport
+
+    {{-- Script de inicialización de tiempo real --}}
+    <script>
+        document.addEventListener('livewire:init', () => {
+            // Esperar a que CrmChat esté disponible
+            const initRealtime = () => {
+                if (!window.CrmChat || !window.Echo) {
+                    setTimeout(initRealtime, 500);
+                    return;
+                }
+
+                const channelId = @js($selectedChannelId);
+                const contactId = @js($selectedContactId);
+
+                // Suscribirse al canal de WhatsApp actual
+                if (channelId) {
+                    window.CrmChat.subscribeToChannel(channelId);
+                }
+
+                // Suscribirse a la conversación actual
+                if (contactId) {
+                    window.CrmChat.subscribeToContact(contactId);
+                }
+
+                console.log('[CRM Chat] Tiempo real inicializado', { channelId, contactId });
+            };
+
+            initRealtime();
+
+            // Escuchar cambios de canal desde Livewire
+            Livewire.on('channel-changed', (data) => {
+                if (!window.CrmChat) return;
+                // Desuscribirse del canal anterior
+                window.CrmChat.subscribedChannels.forEach(id => {
+                    window.CrmChat.unsubscribeFromChannel(id);
+                });
+                // Suscribirse al nuevo canal
+                if (data[0]?.channelId) {
+                    window.CrmChat.subscribeToChannel(data[0].channelId);
+                }
+            });
+
+            // Escuchar cambios de conversación desde Livewire
+            Livewire.on('contact-changed', (data) => {
+                if (!window.CrmChat) return;
+                // Desuscribirse de la conversación anterior
+                window.CrmChat.subscribedContacts.forEach(id => {
+                    window.CrmChat.unsubscribeFromContact(id);
+                });
+                // Suscribirse a la nueva conversación
+                if (data[0]?.contactId) {
+                    window.CrmChat.subscribeToContact(data[0].contactId);
+                }
+            });
+        });
+    </script>
 </div>

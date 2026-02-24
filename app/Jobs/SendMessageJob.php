@@ -2,6 +2,8 @@
 
 namespace App\Jobs;
 
+use App\Events\MessageStatusUpdated;
+use App\Events\NewWhatsAppMessage;
 use App\Models\Message;
 use App\Services\EvolutionApiService;
 use Illuminate\Bus\Queueable;
@@ -67,9 +69,41 @@ class SendMessageJob implements ShouldQueue
                     'message_id' => $externalId,
                     'status' => 'sent',
                 ]);
+
+                // Emitir actualización de estado al frontend en tiempo real
+                try {
+                    broadcast(new MessageStatusUpdated(
+                        messageId: $message->id,
+                        externalMessageId: $externalId ?? '',
+                        status: 'sent',
+                        contactId: $message->contact_id,
+                        channelId: $message->channel_id,
+                    ));
+                    // También emitir el mensaje completo para que aparezca en otros navegadores
+                    broadcast(new NewWhatsAppMessage($message->fresh()));
+                } catch (\Exception $broadcastException) {
+                    // Broadcasting no disponible, no es crítico
+                    Log::debug('SendMessageJob: Broadcasting no disponible', [
+                        'error' => $broadcastException->getMessage(),
+                    ]);
+                }
             } else {
                 $errorMsg = $response['error'] ?? 'Unknown Evolution API error';
                 $message->update(['status' => 'failed']);
+
+                // Emitir estado fallido al frontend
+                try {
+                    broadcast(new MessageStatusUpdated(
+                        messageId: $message->id,
+                        externalMessageId: '',
+                        status: 'failed',
+                        contactId: $message->contact_id,
+                        channelId: $message->channel_id,
+                    ));
+                } catch (\Exception $broadcastException) {
+                    // No es crítico
+                }
+
                 Log::error('SendMessageJob: Evolution API failed', [
                     'message_id' => $this->messageId,
                     'recipient' => $this->recipient,
