@@ -228,29 +228,29 @@ class EvolutionApiService
             'MESSAGES_SET',
         ];
 
-        // Evolution API v2.3: formato con propiedad "webhook" en el nivel raíz
-        $response = $this->request()->post("/webhook/set/{$instanceName}", [
-            'webhook' => [
-                'enabled' => true,
-                'url' => $url,
-                'byEvents' => false,
-                'base64' => true,
-                'headers' => (object) [],
-                'events' => $events,
-            ],
-        ]);
+        $webhookPayload = [
+            'enabled' => true,
+            'url' => $url,
+            'byEvents' => false,
+            'base64' => true,
+            'headers' => (object) [],
+            'events' => $events,
+        ];
 
-        // Fallback: Evolution API v2.x formato alternativo (endpoint /instance/update)
+        // Evolution API v2.3: payload directo sin wrapper "webhook"
+        $response = $this->request()->post("/webhook/set/{$instanceName}", $webhookPayload);
+
+        // Fallback 1: envuelto en "webhook" (algunas versiones lo requieren)
+        if (!$response->successful()) {
+            $response = $this->request()->post("/webhook/set/{$instanceName}", [
+                'webhook' => $webhookPayload,
+            ]);
+        }
+
+        // Fallback 2: endpoint /instance/update (versiones más antiguas)
         if (!$response->successful()) {
             $response = $this->request()->put("/instance/update/{$instanceName}", [
-                'webhook' => [
-                    'enabled' => true,
-                    'url' => $url,
-                    'byEvents' => false,
-                    'base64' => true,
-                    'headers' => (object) [],
-                    'events' => $events,
-                ],
+                'webhook' => $webhookPayload,
             ]);
         }
 

@@ -66,13 +66,21 @@ echo -e "${GREEN}✓ Permisos sincronizados${NC}"
 echo ""
 
 # ==========================================
-# 5. Compilar assets
+# 5. Compilar assets + instalar dependencias Node.js
 # ==========================================
 echo -e "${YELLOW}[5/9] 📦 Compilando assets...${NC}"
 if [ -f "$SRC_DIR/package.json" ]; then
     docker exec -w /var/www/html ${PROJECT_NAME}_php npm install 2>&1 | tail -3
     docker exec -w /var/www/html ${PROJECT_NAME}_php npm run build 2>&1 | tail -5
     echo -e "${GREEN}✓ Assets compilados${NC}"
+    
+    # Verificar que socket.io-client está disponible (necesario para evolution-listener)
+    if docker exec -w /var/www/html ${PROJECT_NAME}_php node -e "require('socket.io-client'); console.log('OK')" 2>/dev/null | grep -q "OK"; then
+        echo -e "${GREEN}✓ socket.io-client disponible para evolution-listener${NC}"
+    else
+        echo -e "${YELLOW}⚠️  socket.io-client no disponible, reinstalando...${NC}"
+        docker exec -w /var/www/html ${PROJECT_NAME}_php npm install socket.io-client 2>&1 | tail -3
+    fi
 else
     echo -e "${BLUE}⏭️  Sin package.json, saltando${NC}"
 fi
