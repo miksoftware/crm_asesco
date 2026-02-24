@@ -31,29 +31,41 @@ class EvolutionApiService
         // Build webhook URL for automatic configuration at creation time
         $webhookUrl = rtrim(config('app.url'), '/') . '/api/webhook/evolution';
 
+        $websocketEvents = [
+            'MESSAGES_UPSERT',
+            'MESSAGES_UPDATE',
+            'MESSAGES_DELETE',
+            'SEND_MESSAGE',
+            'CONNECTION_UPDATE',
+            'QRCODE_UPDATED',
+            'CONTACTS_UPSERT',
+            'CONTACTS_UPDATE',
+            'CHATS_UPSERT',
+            'CHATS_UPDATE',
+        ];
+
         $data = array_merge([
             'instanceName' => $instanceName,
             'integration' => 'WHATSAPP-BAILEYS',
             'qrcode' => true,
             'rejectCall' => false,
-            'groupsIgnore' => true,
+            'groupsIgnore' => false,
             'alwaysOnline' => false,
             'readMessages' => false,
             'readStatus' => false,
-            'syncFullHistory' => false,
+            'syncFullHistory' => true,
+            // Configuración de Webhook
             'webhook' => [
                 'url' => $webhookUrl,
                 'byEvents' => false,
                 'base64' => true,
-                'headers' => [],
-                'events' => [
-                    'MESSAGES_UPSERT',
-                    'MESSAGES_UPDATE',
-                    'MESSAGES_DELETE',
-                    'SEND_MESSAGE',
-                    'CONNECTION_UPDATE',
-                    'QRCODE_UPDATED',
-                ],
+                'headers' => (object) [],
+                'events' => $websocketEvents,
+            ],
+            // Configuración de WebSocket (Evolution API v2.3)
+            'websocket' => [
+                'enabled' => true,
+                'events' => $websocketEvents,
             ],
         ], $options);
 
