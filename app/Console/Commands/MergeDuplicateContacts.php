@@ -110,8 +110,6 @@ class MergeDuplicateContacts extends Command
             ->havingRaw('COUNT(*) > 1')
             ->pluck('phone_number');
 
-        $mergedCount = 0;
-
         foreach ($duplicates as $phoneNumber) {
             $contacts = Contact::where('channel_id', $channelId)
                 ->where('phone_number', $phoneNumber)
