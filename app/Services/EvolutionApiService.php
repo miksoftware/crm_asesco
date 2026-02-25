@@ -247,7 +247,7 @@ class EvolutionApiService
             'alwaysOnline' => false,
             'readMessages' => false,
             'readStatus' => false,
-            'syncFullHistory' => true,
+            'syncFullHistory' => false,
         ], $settings);
 
         $response = $this->request()->post("/settings/set/{$instanceName}", $data);

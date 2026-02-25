@@ -1338,6 +1338,22 @@ class Index extends Component
         $evolutionApi = app(EvolutionApiService::class);
 
         try {
+            // Activar syncFullHistory temporalmente para que Evolution API
+            // descargue el historial completo desde WhatsApp
+            $settingsResult = $evolutionApi->setSettings($channel->instance_name, [
+                'syncFullHistory' => true,
+            ]);
+            
+            if ($settingsResult['success']) {
+                Log::info("syncFullHistory activado temporalmente para {$channel->instance_name}");
+                // Dar tiempo a Evolution API para procesar el historial
+                sleep(3);
+            } else {
+                Log::warning("No se pudo activar syncFullHistory para {$channel->instance_name}", [
+                    'error' => $settingsResult['error'] ?? 'Desconocido',
+                ]);
+            }
+
             // First, clean up invalid contacts
             $cleaned = $this->cleanupInvalidContacts($channel->id);
             
@@ -1375,6 +1391,14 @@ class Index extends Component
                 $page++;
             }
 
+            // Desactivar syncFullHistory después de la sincronización
+            $disableResult = $evolutionApi->setSettings($channel->instance_name, [
+                'syncFullHistory' => false,
+            ]);
+            if ($disableResult['success']) {
+                Log::info("syncFullHistory desactivado para {$channel->instance_name}");
+            }
+
             $this->isSyncing = false;
             unset($this->conversations);
             unset($this->messages);
@@ -1401,6 +1425,15 @@ class Index extends Component
             }
 
         } catch (\Exception $e) {
+            // Asegurar que syncFullHistory se desactive incluso si hay error
+            try {
+                $evolutionApi->setSettings($channel->instance_name, [
+                    'syncFullHistory' => false,
+                ]);
+            } catch (\Exception $ignored) {
+                // No propagar este error
+            }
+
             $this->isSyncing = false;
             Log::error('Error syncing messages', ['error' => $e->getMessage()]);
             $this->dispatch('toast', type: 'error', message: 'Error al sincronizar: ' . $e->getMessage());

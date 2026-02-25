@@ -31,22 +31,9 @@ class WebhookController extends Controller
     {
         $payload = $request->all();
 
-        // Validar apikey: Evolution API la envía en el body JSON,
-        // pero también puede venir como header HTTP
-        $expectedApiKey = config('services.evolution.api_key');
-        if ($expectedApiKey) {
-            $receivedApiKey = $payload['apikey']
-                ?? $request->header('apikey')
-                ?? $request->header('x-api-key')
-                ?? null;
-
-            if ($receivedApiKey && $receivedApiKey !== $expectedApiKey) {
-                Log::warning('Webhook con apikey inválida', [
-                    'ip' => $request->ip(),
-                ]);
-                return response()->json(['error' => 'Unauthorized'], 401);
-            }
-        }
+        // NOTA: Evolution API envía un campo "apikey" en el body del webhook,
+        // pero es el token/hash de la instancia, NO el apikey global.
+        // La validación se hace verificando que la instancia exista en nuestra BD.
 
         // Validar que la instancia existe en nuestra base de datos
         $instanceName = $payload['instance'] ?? null;
