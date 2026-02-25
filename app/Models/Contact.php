@@ -102,11 +102,20 @@ class Contact extends Model
 
     /**
      * Get the display name for the contact.
-     * Returns name, push_name, or phone_number as fallback.
+     * Prioridad: nombre personalizado > push_name > numero de telefono.
+     * Si push_name es generico (ej: "Voce", "You"), muestra el numero.
      */
     public function getDisplayNameAttribute(): string
     {
-        return $this->name ?? $this->push_name ?? $this->phone_number;
+        if ($this->name) {
+            return $this->name;
+        }
+
+        if ($this->push_name) {
+            return $this->push_name;
+        }
+
+        return $this->phone_number ?? 'Sin nombre';
     }
 
     /**

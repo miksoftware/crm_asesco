@@ -1819,15 +1819,9 @@ class Index extends Component
             return false;
         }
 
-        // Skip "Você" contacts (WhatsApp status)
-        $pushName = $msgData['pushName'] ?? null;
-        $pushNameLower = $pushName ? strtolower(trim($pushName)) : '';
-        if (in_array($pushNameLower, ['você', 'voce'])) {
-            return false;
-        }
-
         // Extract the identifier from JID
         $jidPart = explode('@', $remoteJid)[0];
+        $pushName = $msgData['pushName'] ?? null;
         
         // ⭐ GROUP MESSAGE HANDLING
         $senderName = null;

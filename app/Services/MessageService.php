@@ -3,7 +3,6 @@
 namespace App\Services;
 
 use App\Jobs\DownloadMediaJob;
-use App\Jobs\SendMessageJob;
 use App\Models\Channel;
 use App\Models\Contact;
 use App\Models\Message;
@@ -24,23 +23,20 @@ class MessageService
     public function sendTextMessage(int $channelId, string $recipient, string $text, bool $isGroup = false): Message
     {
         $channel = Channel::findOrFail($channelId);
-        
+
         // Verify channel is connected
         if ($channel->status !== 'connected') {
             throw new \Exception("El canal '{$channel->name}' no está conectado. Estado actual: {$channel->status}");
         }
-        
+
         if ($isGroup) {
-            // For groups, find the contact by group_jid
             $contact = Contact::where('channel_id', $channelId)
                 ->where('is_group', true)
                 ->where('group_jid', $recipient)
                 ->firstOrFail();
-            
-            // The recipient for Evolution API is the group JID itself
+
             $apiRecipient = $recipient;
         } else {
-            // Find or create individual contact
             $contact = Contact::firstOrCreate(
                 [
                     'channel_id' => $channelId,
@@ -53,42 +49,53 @@ class MessageService
                     'metadata' => [],
                 ]
             );
-            
-            // Use remote_jid if available (for LID contacts), otherwise use phone number
+
             $apiRecipient = $contact->remote_jid ?? $recipient;
-            
-            // If remote_jid doesn't contain @, it's a phone number, format it
+
             if ($apiRecipient && !str_contains($apiRecipient, '@')) {
                 $apiRecipient = $this->normalizePhoneNumber($apiRecipient);
             }
         }
 
-        // Create message with pending status
+        // Enviar directamente via Evolution API (sincrono, ~1-2 seg)
+        $response = $this->evolutionApi->sendTextMessage($channel->instance_name, $apiRecipient, $text);
+
+        $status = 'failed';
+        $externalId = null;
+
+        if ($response['success']) {
+            $status = 'sent';
+            $externalId = $response['data']['key']['id'] ?? null;
+        } else {
+            Log::error('Error enviando mensaje de texto', [
+                'recipient' => $apiRecipient,
+                'error' => $response['error'] ?? 'Error desconocido',
+            ]);
+        }
+
+        // Crear mensaje con el estado real
         $message = Message::create([
             'contact_id' => $contact->id,
             'channel_id' => $channelId,
             'user_id' => auth()->id(),
+            'message_id' => $externalId,
             'direction' => 'outgoing',
             'type' => 'text',
             'content' => $text,
             'sender_name' => $isGroup ? 'Tú' : null,
             'sender_phone' => $isGroup ? $channel->phone_number : null,
-            'status' => 'pending',
+            'status' => $status,
             'is_read' => true,
             'sent_at' => now(),
         ]);
 
-        // Dispatch async job to send via Evolution API
-        // This returns immediately so the UI doesn't block
-        SendMessageJob::dispatch(
-            messageId: $message->id,
-            instanceName: $channel->instance_name,
-            recipient: $apiRecipient,
-            text: $text,
-        );
+        if ($status === 'failed') {
+            throw new \Exception('No se pudo enviar el mensaje. Intenta de nuevo.');
+        }
 
         return $message;
     }
+
 
 
     /**

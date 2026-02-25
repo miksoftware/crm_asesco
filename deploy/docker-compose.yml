@@ -72,6 +72,29 @@ services:
       - crm_network
 
   # ============================================
+  # Laravel Queue Worker
+  # ============================================
+  # Procesa jobs asíncronos: envío de mensajes,
+  # descarga de media, etc.
+  queue:
+    build: .
+    container_name: crm_queue
+    working_dir: /var/www/html
+    command: php artisan queue:work redis --sleep=3 --tries=3 --max-time=3600 --memory=256
+    volumes:
+      - ./src:/var/www/html
+      - ./php-config/custom.ini:/usr/local/etc/php/conf.d/custom.ini
+    depends_on:
+      - redis
+      - mysql
+    networks:
+      - crm_network
+    restart: unless-stopped
+    environment:
+      - APP_ENV=production
+      - APP_DEBUG=false
+
+  # ============================================
   # Laravel Reverb - Servidor WebSocket
   # ============================================
   # Recibe eventos de Broadcasting de Laravel y los envía

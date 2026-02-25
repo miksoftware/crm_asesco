@@ -127,7 +127,7 @@ docker exec -w /var/www/html ${PROJECT_NAME}_php php artisan queue:restart 2>/de
 cd "$PROJECT_DIR"
 
 # Reiniciar todos los servicios (incluyendo reverb y evolution-listener)
-docker compose restart php nginx 2>&1
+docker compose restart php nginx queue 2>&1
 # Reiniciar servicios de WebSocket (si existen)
 docker compose restart reverb evolution-listener 2>/dev/null || true
 sleep 3
