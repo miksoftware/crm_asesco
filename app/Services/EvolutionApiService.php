@@ -274,23 +274,24 @@ class EvolutionApiService
             'CHATS_UPDATE',
         ];
 
-        // Intentar POST /websocket/set/{instance} (formato directo)
+        // Intentar POST /websocket/set/{instance} (Evolution API v2.x)
         $response = $this->request()->post("/websocket/set/{$instanceName}", [
             'enabled' => $enabled,
             'events' => $websocketEvents,
         ]);
 
-        // Fallback: via /instance/update (algunas versiones)
-        if (!$response->successful()) {
-            $response = $this->request()->put("/instance/update/{$instanceName}", [
-                'websocket' => [
-                    'enabled' => $enabled,
-                    'events' => $websocketEvents,
-                ],
-            ]);
+        if ($response->successful()) {
+            return $this->handleResponse($response);
         }
 
-        return $this->handleResponse($response);
+        // Algunos builds de Evolution API no exponen este endpoint.
+        // El websocket se configura al crear la instancia o desde Evolution Manager.
+        // No es un error crítico — retornar éxito con nota.
+        return [
+            'success' => true,
+            'data' => null,
+            'note' => 'Endpoint websocket/set no disponible. Configurar desde Evolution Manager si es necesario.',
+        ];
     }
 
     /**

@@ -76,7 +76,11 @@ class SetupChannelWebhooks extends Command
             if ($fullConfig) {
                 $wsResult = $evolutionApi->setWebsocket($channel->instance_name);
                 if ($wsResult['success']) {
-                    $this->info("  ✓ WebSocket habilitado con eventos");
+                    if (isset($wsResult['note'])) {
+                        $this->warn("  ⚠ WebSocket: " . $wsResult['note']);
+                    } else {
+                        $this->info("  ✓ WebSocket habilitado con eventos");
+                    }
                 } else {
                     $this->error("  ✗ Error websocket: " . ($wsResult['error'] ?? 'Error desconocido'));
                 }
