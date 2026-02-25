@@ -58,9 +58,10 @@ class WebhookController extends Controller
             }
         }
         
-        Log::debug('Webhook received', [
+        Log::info('Webhook recibido', [
             'event' => $payload['event'] ?? 'unknown',
             'instance' => $instanceName,
+            'remoteJid' => $payload['data']['key']['remoteJid'] ?? null,
         ]);
 
         // Validate basic payload structure
