@@ -48,6 +48,59 @@ class MergeDuplicateContacts extends Command
 
     private function mergeChannelDuplicates(int $channelId, bool $dryRun): int
     {
+        $mergedCount = 0;
+
+        // ============================================
+        // PASO 1: Fusionar contactos LID usando lid_mappings
+        // ============================================
+        // Buscar contactos cuyo phone_number es un LID (no es teléfono colombiano real)
+        // y que tienen un mapping a un teléfono real en lid_mappings
+        $lidContacts = Contact::where('channel_id', $channelId)
+            ->where(function ($q) {
+                $q->where('is_group', false)->orWhereNull('is_group');
+            })
+            ->whereRaw("phone_number NOT REGEXP '^57[0-9]{10}$'")
+            ->whereRaw("phone_number REGEXP '^[0-9]{10,}$'")
+            ->get();
+
+        foreach ($lidContacts as $lidContact) {
+            // Buscar si este "phone_number" es realmente un LID con mapping
+            $realPhone = \App\Models\LidMapping::findPhoneByLid($lidContact->phone_number);
+            
+            if (!$realPhone) {
+                continue;
+            }
+
+            // Buscar el contacto real con ese teléfono
+            $realContact = Contact::where('channel_id', $channelId)
+                ->where('phone_number', $realPhone)
+                ->where('id', '!=', $lidContact->id)
+                ->first();
+
+            if ($realContact) {
+                $this->line("    LID Merge: {$lidContact->phone_number} (ID:{$lidContact->id}) → {$realPhone} (ID:{$realContact->id})");
+                
+                if (!$dryRun) {
+                    $this->mergeTwoContacts($realContact, $lidContact);
+                }
+                $mergedCount++;
+            } else {
+                // No hay contacto real, corregir el phone_number del contacto LID
+                $this->line("    LID Fix: {$lidContact->phone_number} → {$realPhone} (ID:{$lidContact->id})");
+                
+                if (!$dryRun) {
+                    $lidContact->update([
+                        'phone_number' => $realPhone,
+                        'remote_jid' => $realPhone . '@s.whatsapp.net',
+                    ]);
+                }
+                $mergedCount++;
+            }
+        }
+
+        // ============================================
+        // PASO 2: Fusionar contactos con mismo phone_number
+        // ============================================
         // Find phone numbers that have multiple contacts
         $duplicates = Contact::where('channel_id', $channelId)
             ->whereNotNull('phone_number')
