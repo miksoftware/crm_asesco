@@ -3,6 +3,7 @@ name: crm
 services:
   php:
     build: .
+    image: crm-php
     container_name: crm_php
     working_dir: /var/www/html
     volumes:
@@ -77,7 +78,7 @@ services:
   # Procesa jobs asíncronos: envío de mensajes,
   # descarga de media, etc.
   queue:
-    build: .
+    image: crm-php
     container_name: crm_queue
     working_dir: /var/www/html
     command: php artisan queue:work redis --sleep=3 --tries=3 --max-time=3600 --memory=256

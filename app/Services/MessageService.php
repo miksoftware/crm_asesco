@@ -119,6 +119,15 @@ class MessageService
         $pushName = $data['pushName'] ?? null;
         $isFromMe = ($data['key']['fromMe'] ?? false) === true;
         
+        // ⭐ SKIP outgoing individual messages (fromMe=true)
+        // Estos llegan con pushName="Você" (nuestro propio nombre en WhatsApp)
+        // y sobreescriben el nombre real del contacto.
+        // Los mensajes salientes ya se guardan en sendTextMessage().
+        $isGroupMessage = str_contains($remoteJid, '@g.us');
+        if ($isFromMe && !$isGroupMessage) {
+            return null;
+        }
+        
         // ⭐ GROUP MESSAGE HANDLING
         $isGroupMessage = str_contains($remoteJid, '@g.us');
         $senderName = null;
@@ -244,7 +253,7 @@ class MessageService
                     'channel_id' => $channel->id,
                     'phone_number' => $phoneNumber,
                     'remote_jid' => $standardJid,
-                    'push_name' => $pushName,
+                    'push_name' => ($pushName && !in_array(strtolower(trim($pushName)), ['você', 'voce'])) ? $pushName : null,
                     'labels' => [],
                     'metadata' => [],
                 ]);
@@ -254,10 +263,14 @@ class MessageService
                     $updates['remote_jid'] = $standardJid;
                 }
                 if ($pushName && $contact->push_name !== $pushName) {
-                    $updates['push_name'] = $pushName;
-                    // Also update name if contact has no custom name set
-                    if (!$contact->name) {
-                        $updates['name'] = $pushName;
+                    // Nunca sobreescribir con "Você"/"Voce" (nombre propio de WhatsApp)
+                    $lowerPush = strtolower(trim($pushName));
+                    if ($lowerPush !== 'você' && $lowerPush !== 'voce') {
+                        $updates['push_name'] = $pushName;
+                        // Also update name if contact has no custom name set
+                        if (!$contact->name) {
+                            $updates['name'] = $pushName;
+                        }
                     }
                 }
                 if (!empty($updates)) {

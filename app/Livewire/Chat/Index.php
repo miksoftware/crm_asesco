@@ -1804,6 +1804,13 @@ class Index extends Component
         // Check if this is a group message
         $isGroupMessage = str_contains($remoteJid, '@g.us');
 
+        // ⭐ SKIP outgoing individual messages (fromMe=true)
+        // Estos llegan con pushName="Você" y sobreescriben el nombre real del contacto.
+        $isFromMeIndividual = ($key['fromMe'] ?? false) && !$isGroupMessage;
+        if ($isFromMeIndividual) {
+            return false;
+        }
+
         // Skip status/broadcast messages
         if (str_contains($remoteJid, '@broadcast') || str_contains($remoteJid, 'status@')) {
             return false;
@@ -1928,18 +1935,29 @@ class Index extends Component
         $standardJid = $phoneNumber . '@s.whatsapp.net';
 
         if (!$contact) {
-            // Create new contact
+            // Create new contact - nunca usar "Você"/"Voce" como push_name
+            $safePushName = $pushName;
+            if ($safePushName) {
+                $lp = strtolower(trim($safePushName));
+                if ($lp === 'você' || $lp === 'voce') {
+                    $safePushName = null;
+                }
+            }
             $contact = Contact::create([
                 'channel_id' => $channel->id,
                 'phone_number' => $phoneNumber,
                 'remote_jid' => $standardJid,
-                'push_name' => $pushName,
+                'push_name' => $safePushName,
             ]);
         } else {
             // Update contact if needed
             $updates = [];
             
-            if ($pushName && $pushName !== $contact->push_name) {
+            // Nunca sobreescribir con "Você"/"Voce" (nombre propio de WhatsApp)
+            $lowerPush = $pushName ? strtolower(trim($pushName)) : '';
+            $isSafePushName = $pushName && $lowerPush !== 'você' && $lowerPush !== 'voce';
+            
+            if ($isSafePushName && $pushName !== $contact->push_name) {
                 $updates['push_name'] = $pushName;
             }
             
