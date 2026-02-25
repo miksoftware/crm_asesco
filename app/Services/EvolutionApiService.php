@@ -28,45 +28,14 @@ class EvolutionApiService
 
     public function createInstance(string $instanceName, array $options = []): array
     {
-        // Build webhook URL for automatic configuration at creation time
-        $webhookUrl = rtrim(config('app.url'), '/') . '/api/webhook/evolution';
-
-        $websocketEvents = [
-            'MESSAGES_UPSERT',
-            'MESSAGES_UPDATE',
-            'MESSAGES_DELETE',
-            'SEND_MESSAGE',
-            'CONNECTION_UPDATE',
-            'QRCODE_UPDATED',
-            'CONTACTS_UPSERT',
-            'CONTACTS_UPDATE',
-            'CHATS_UPSERT',
-            'CHATS_UPDATE',
-        ];
-
+        // Crear instancia con lo mínimo necesario.
+        // La configuración completa (settings, webhook, websocket) se aplica
+        // después con configureInstance() usando endpoints separados,
+        // ya que Evolution API puede ignorar parámetros extra en /instance/create.
         $data = array_merge([
             'instanceName' => $instanceName,
             'integration' => 'WHATSAPP-BAILEYS',
             'qrcode' => true,
-            'rejectCall' => false,
-            'groupsIgnore' => false,
-            'alwaysOnline' => false,
-            'readMessages' => false,
-            'readStatus' => false,
-            'syncFullHistory' => true,
-            // Configuración de Webhook
-            'webhook' => [
-                'url' => $webhookUrl,
-                'byEvents' => false,
-                'base64' => true,
-                'headers' => (object) [],
-                'events' => $websocketEvents,
-            ],
-            // Configuración de WebSocket (Evolution API v2.3)
-            'websocket' => [
-                'enabled' => true,
-                'events' => $websocketEvents,
-            ],
         ], $options);
 
         $response = $this->request()->post('/instance/create', $data);
