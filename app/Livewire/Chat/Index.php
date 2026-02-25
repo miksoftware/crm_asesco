@@ -98,12 +98,75 @@ class Index extends Component
         $this->canSend = $isAdmin || $user->hasPermission('chats.enviar');
         $this->canManageLabels = $isAdmin || $user->hasPermission('chats.etiquetas');
 
+        // Sincronizar estado real de los canales desde Evolution API
+        $this->syncChannelStatuses();
+
         // Auto-select first channel if none selected
         if ($this->selectedChannelId === null) {
             $firstChannel = $this->channels->first();
             if ($firstChannel) {
                 $this->selectedChannelId = $firstChannel->id;
             }
+        }
+    }
+
+    /**
+     * Sincronizar el estado de conexión de los canales del usuario desde Evolution API.
+     */
+    private function syncChannelStatuses(): void
+    {
+        try {
+            $api = app(EvolutionApiService::class);
+            $result = $api->getAllInstances();
+
+            if (!$result['success']) {
+                return;
+            }
+
+            $instances = collect($result['data'] ?? [])->keyBy('name');
+
+            foreach ($this->channels as $channel) {
+                $instance = $instances->get($channel->instance_name);
+
+                if (!$instance) {
+                    if ($channel->status !== 'disconnected') {
+                        $channel->update(['status' => 'disconnected']);
+                    }
+                    continue;
+                }
+
+                $connectionStatus = $instance['connectionStatus'] ?? 'close';
+                $newStatus = match ($connectionStatus) {
+                    'open' => 'connected',
+                    'connecting' => 'connecting',
+                    default => 'disconnected',
+                };
+
+                // Actualizar número de teléfono si está disponible
+                $phoneNumber = null;
+                if (!empty($instance['ownerJid'])) {
+                    $phoneNumber = preg_replace('/[^0-9]/', '', explode('@', $instance['ownerJid'])[0]);
+                }
+                if (empty($phoneNumber) && !empty($instance['number'])) {
+                    $phoneNumber = preg_replace('/[^0-9]/', '', $instance['number']);
+                }
+
+                $updateData = ['status' => $newStatus];
+                if ($phoneNumber) {
+                    $updateData['phone_number'] = $phoneNumber;
+                }
+
+                if ($channel->status !== $newStatus || ($phoneNumber && $channel->phone_number !== $phoneNumber)) {
+                    $channel->update($updateData);
+                }
+            }
+
+            // Limpiar cache de canales para que se recarguen con el nuevo estado
+            unset($this->channels);
+        } catch (\Exception $e) {
+            Log::warning('Error sincronizando estado de canales en chat', [
+                'error' => $e->getMessage(),
+            ]);
         }
     }
 
@@ -339,8 +402,44 @@ class Index extends Component
         $this->resetMessages();
         unset($this->conversations);
 
+        // Sincronizar estado del canal seleccionado desde Evolution API
+        $this->refreshChannelStatus($channelId);
+
         // Notificar al frontend para suscribirse al nuevo canal via WebSocket
         $this->dispatch('channel-changed', channelId: $channelId);
+    }
+
+    /**
+     * Refrescar el estado de un canal específico desde Evolution API.
+     */
+    private function refreshChannelStatus(int $channelId): void
+    {
+        try {
+            $channel = Channel::find($channelId);
+            if (!$channel) return;
+
+            $api = app(EvolutionApiService::class);
+            $result = $api->getConnectionState($channel->instance_name);
+
+            if (!$result['success']) return;
+
+            $state = $result['data']['state'] ?? $result['data']['instance']['state'] ?? 'close';
+            $newStatus = match ($state) {
+                'open' => 'connected',
+                'connecting' => 'connecting',
+                default => 'disconnected',
+            };
+
+            if ($channel->status !== $newStatus) {
+                $channel->update(['status' => $newStatus]);
+                unset($this->channels);
+                unset($this->isChannelConnected);
+            }
+        } catch (\Exception $e) {
+            Log::warning("Error refrescando estado del canal {$channelId}", [
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     public function selectConversation(int $contactId): void
