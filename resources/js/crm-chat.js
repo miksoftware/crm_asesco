@@ -77,6 +77,15 @@ window.CrmChat = {
                 if (data.direction === 'incoming') {
                     this.playNotificationSound();
                 }
+            })
+            .listen('.channel.status', (data) => {
+                console.log('[CRM Chat] Estado del canal actualizado:', data);
+                
+                // Recargar el componente Livewire para reflejar el nuevo estado
+                Livewire.dispatch('channel-status-updated', [{
+                    channel_id: data.channel_id,
+                    status: data.status,
+                }]);
             });
 
         this.subscribedChannels.add(channelId);

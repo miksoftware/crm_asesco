@@ -1416,6 +1416,19 @@ class Index extends Component
         unset($this->selectedContact);
     }
 
+    #[On('channel-status-updated')]
+    public function handleChannelStatusUpdated(array $data): void
+    {
+        $channelId = $data['channel_id'] ?? null;
+        $status = $data['status'] ?? null;
+
+        if ($channelId && $status) {
+            // Refrescar la lista de canales y el estado de conexión
+            unset($this->channels);
+            unset($this->isChannelConnected);
+        }
+    }
+
     /**
      * Sync messages from Evolution API for the current channel.
      * Optimized to avoid timeout - does NOT download media during sync.

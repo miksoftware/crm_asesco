@@ -450,6 +450,19 @@ class WebhookController extends Controller
             };
             
             $channel->update(['status' => $newStatus]);
+
+            // Notificar al frontend via broadcasting para actualizar el estado en tiempo real
+            try {
+                broadcast(new \App\Events\ChannelStatusUpdated(
+                    $channel->id,
+                    $newStatus,
+                    $instanceName,
+                ))->toOthers();
+            } catch (\Exception $e) {
+                Log::warning('Error broadcasting connection update', ['error' => $e->getMessage()]);
+            }
+
+            Log::info("Canal {$instanceName} actualizado a: {$newStatus}");
         }
 
         return response()->json(['status' => 'processed']);
