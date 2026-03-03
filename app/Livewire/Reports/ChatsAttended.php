@@ -9,6 +9,11 @@ use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use PhpOffice\PhpSpreadsheet\Spreadsheet;
+use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
+use PhpOffice\PhpSpreadsheet\Style\Alignment;
+use PhpOffice\PhpSpreadsheet\Style\Border;
+use PhpOffice\PhpSpreadsheet\Style\Fill;
 use Livewire\Component;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
@@ -292,9 +297,6 @@ class ChatsAttended extends Component
             ])
             ->with(['assignedUser:id,name', 'channel:id,name', 'labelRelations:id,name,color'])
             ->withCount([
-                'messages as total_messages' => function ($q) {
-                    $q->whereBetween('sent_at', [$this->dateFrom . ' 00:00:00', $this->dateTo . ' 23:59:59']);
-                },
                 'messages as sent_messages' => function ($q) {
                     $q->whereBetween('sent_at', [$this->dateFrom . ' 00:00:00', $this->dateTo . ' 23:59:59'])
                       ->where('direction', 'outgoing');
@@ -304,13 +306,15 @@ class ChatsAttended extends Component
                       ->where('direction', 'incoming');
                 },
             ])
-            ->withMax('messages as last_message_at', 'sent_at')
+            ->withMin(['messages as first_message_at' => function ($q) {
+                $q->whereBetween('sent_at', [$this->dateFrom . ' 00:00:00', $this->dateTo . ' 23:59:59']);
+            }], 'sent_at')
             ->when($this->userId, fn($q) => $q->where('contacts.assigned_user_id', $this->userId))
             ->when($this->channelId, fn($q) => $q->where('contacts.channel_id', $this->channelId))
             ->whereHas('messages', function ($q) {
                 $q->whereBetween('sent_at', [$this->dateFrom . ' 00:00:00', $this->dateTo . ' 23:59:59']);
             })
-            ->orderByDesc('last_message_at')
+            ->orderByDesc('first_message_at')
             ->paginate($this->perPage);
     }
 
@@ -331,9 +335,6 @@ class ChatsAttended extends Component
             ])
             ->with(['assignedUser:id,name', 'channel:id,name', 'labelRelations:id,name,color'])
             ->withCount([
-                'messages as total_messages' => function ($q) {
-                    $q->whereBetween('sent_at', [$this->dateFrom . ' 00:00:00', $this->dateTo . ' 23:59:59']);
-                },
                 'messages as sent_messages' => function ($q) {
                     $q->whereBetween('sent_at', [$this->dateFrom . ' 00:00:00', $this->dateTo . ' 23:59:59'])
                       ->where('direction', 'outgoing');
@@ -343,13 +344,15 @@ class ChatsAttended extends Component
                       ->where('direction', 'incoming');
                 },
             ])
-            ->withMax('messages as last_message_at', 'sent_at')
+            ->withMin(['messages as first_message_at' => function ($q) {
+                $q->whereBetween('sent_at', [$this->dateFrom . ' 00:00:00', $this->dateTo . ' 23:59:59']);
+            }], 'sent_at')
             ->when($this->userId, fn($q) => $q->where('contacts.assigned_user_id', $this->userId))
             ->when($this->channelId, fn($q) => $q->where('contacts.channel_id', $this->channelId))
             ->whereHas('messages', function ($q) {
                 $q->whereBetween('sent_at', [$this->dateFrom . ' 00:00:00', $this->dateTo . ' 23:59:59']);
             })
-            ->orderByDesc('last_message_at')
+            ->orderByDesc('first_message_at')
             ->get();
 
         $selectedUser = $this->userId ? User::find($this->userId) : null;
@@ -365,6 +368,168 @@ class ChatsAttended extends Component
             'totalOutgoing' => $this->totalOutgoing,
             'messagesByUser' => $this->messagesByUser,
         ];
+    }
+
+    /**
+     * Exportar reporte a Excel (.xlsx)
+     */
+    public function exportToExcel()
+    {
+        $contacts = Contact::query()
+            ->select([
+                'contacts.id',
+                'contacts.name',
+                'contacts.push_name',
+                'contacts.phone_number',
+                'contacts.assigned_user_id',
+                'contacts.channel_id',
+                'contacts.created_at',
+            ])
+            ->with(['assignedUser:id,name', 'channel:id,name', 'labelRelations:id,name,color'])
+            ->withCount([
+                'messages as sent_messages' => function ($q) {
+                    $q->whereBetween('sent_at', [$this->dateFrom . ' 00:00:00', $this->dateTo . ' 23:59:59'])
+                      ->where('direction', 'outgoing');
+                },
+                'messages as received_messages' => function ($q) {
+                    $q->whereBetween('sent_at', [$this->dateFrom . ' 00:00:00', $this->dateTo . ' 23:59:59'])
+                      ->where('direction', 'incoming');
+                },
+            ])
+            ->withMin(['messages as first_message_at' => function ($q) {
+                $q->whereBetween('sent_at', [$this->dateFrom . ' 00:00:00', $this->dateTo . ' 23:59:59']);
+            }], 'sent_at')
+            ->when($this->userId, fn($q) => $q->where('contacts.assigned_user_id', $this->userId))
+            ->when($this->channelId, fn($q) => $q->where('contacts.channel_id', $this->channelId))
+            ->whereHas('messages', function ($q) {
+                $q->whereBetween('sent_at', [$this->dateFrom . ' 00:00:00', $this->dateTo . ' 23:59:59']);
+            })
+            ->orderByDesc('first_message_at')
+            ->get();
+
+        $spreadsheet = new Spreadsheet();
+        $sheet = $spreadsheet->getActiveSheet();
+        $sheet->setTitle('Reporte Chats');
+
+        // -- Encabezado del reporte --
+        $sheet->setCellValue('A1', 'ASESCO BPO - Reporte de Chats Atendidos');
+        $sheet->mergeCells('A1:I1');
+        $sheet->getStyle('A1')->getFont()->setBold(true)->setSize(14);
+        $sheet->getStyle('A1')->getFont()->getColor()->setRGB('F97316');
+
+        $selectedUser = $this->userId ? User::find($this->userId) : null;
+        $sheet->setCellValue('A2', 'Período: ' . $this->dateFrom . ' al ' . $this->dateTo);
+        $sheet->mergeCells('A2:I2');
+        $sheet->setCellValue('A3', 'Agente: ' . ($selectedUser ? $selectedUser->name : 'Todos los agentes'));
+        $sheet->mergeCells('A3:I3');
+        $sheet->setCellValue('A4', 'Generado: ' . now()->format('d/m/Y H:i'));
+        $sheet->mergeCells('A4:I4');
+        $sheet->getStyle('A2:A4')->getFont()->setSize(10)->setItalic(true);
+
+        // -- Resumen KPIs --
+        $kpiRow = 6;
+        $sheet->setCellValue('A' . $kpiRow, 'Total Mensajes');
+        $sheet->setCellValue('B' . $kpiRow, $this->totalMessages);
+        $sheet->setCellValue('C' . $kpiRow, 'Conversaciones');
+        $sheet->setCellValue('D' . $kpiRow, $this->totalConversations);
+        $sheet->setCellValue('E' . $kpiRow, 'Recibidos');
+        $sheet->setCellValue('F' . $kpiRow, $this->totalIncoming);
+        $sheet->setCellValue('G' . $kpiRow, 'Enviados');
+        $sheet->setCellValue('H' . $kpiRow, $this->totalOutgoing);
+        $sheet->getStyle('A' . $kpiRow . ':H' . $kpiRow)->getFont()->setBold(true);
+        $sheet->getStyle('B' . $kpiRow)->getFont()->setSize(12);
+        $sheet->getStyle('D' . $kpiRow)->getFont()->setSize(12);
+        $sheet->getStyle('F' . $kpiRow)->getFont()->setSize(12);
+        $sheet->getStyle('H' . $kpiRow)->getFont()->setSize(12);
+
+        // -- Headers de la tabla --
+        $headerRow = 8;
+        $headers = ['Nombre', 'WhatsApp', 'Canal', 'Etiquetas', 'Fecha Creación', 'Agente Principal', 'Enviados', 'Recibidos', 'Conversaciones'];
+        foreach ($headers as $col => $header) {
+            $cell = chr(65 + $col) . $headerRow;
+            $sheet->setCellValue($cell, $header);
+        }
+
+        // Estilo de headers
+        $headerRange = 'A' . $headerRow . ':I' . $headerRow;
+        $sheet->getStyle($headerRange)->applyFromArray([
+            'font' => ['bold' => true, 'color' => ['rgb' => 'FFFFFF'], 'size' => 11],
+            'fill' => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['rgb' => 'F97316']],
+            'alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER, 'vertical' => Alignment::VERTICAL_CENTER],
+            'borders' => ['allBorders' => ['borderStyle' => Border::BORDER_THIN, 'color' => ['rgb' => 'E5E7EB']]],
+        ]);
+        $sheet->getRowDimension($headerRow)->setRowHeight(25);
+
+        // -- Datos --
+        $row = $headerRow + 1;
+        foreach ($contacts as $contact) {
+            $name = $contact->name ?: $contact->push_name ?: '-';
+            $labels = $contact->labelRelations->pluck('name')->implode(', ') ?: '-';
+            $channelName = $contact->channel?->name ?: '-';
+            $firstMessage = $contact->first_message_at
+                ? Carbon::parse($contact->first_message_at)->format('d/m/Y H:i')
+                : '-';
+            $agent = $contact->assignedUser?->name ?: 'Sin asignar';
+            $conversations = ($contact->sent_messages > 0 && $contact->received_messages > 0) ? 1 : 0;
+
+            $sheet->setCellValue('A' . $row, $name);
+            $sheet->setCellValue('B' . $row, "'" . $contact->phone_number); // Prefijo ' para evitar formato numérico
+            $sheet->setCellValue('C' . $row, $channelName);
+            $sheet->setCellValue('D' . $row, $labels);
+            $sheet->setCellValue('E' . $row, $firstMessage);
+            $sheet->setCellValue('F' . $row, $agent);
+            $sheet->setCellValue('G' . $row, $contact->sent_messages);
+            $sheet->setCellValue('H' . $row, $contact->received_messages);
+            $sheet->setCellValue('I' . $row, $conversations);
+
+            // Bordes para la fila
+            $sheet->getStyle('A' . $row . ':I' . $row)->applyFromArray([
+                'borders' => ['allBorders' => ['borderStyle' => Border::BORDER_THIN, 'color' => ['rgb' => 'E5E7EB']]],
+            ]);
+
+            // Alternar color de fondo
+            if ($row % 2 === 0) {
+                $sheet->getStyle('A' . $row . ':I' . $row)->applyFromArray([
+                    'fill' => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['rgb' => 'F9FAFB']],
+                ]);
+            }
+
+            // Centrar columnas numéricas
+            $sheet->getStyle('G' . $row . ':I' . $row)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+
+            $row++;
+        }
+
+        // -- Fila de totales --
+        $totalRow = $row;
+        $sheet->setCellValue('A' . $totalRow, 'TOTALES');
+        $sheet->mergeCells('A' . $totalRow . ':F' . $totalRow);
+        $sheet->setCellValue('G' . $totalRow, $contacts->sum('sent_messages'));
+        $sheet->setCellValue('H' . $totalRow, $contacts->sum('received_messages'));
+        $sheet->setCellValue('I' . $totalRow, $contacts->filter(fn($c) => $c->sent_messages > 0 && $c->received_messages > 0)->count());
+        $sheet->getStyle('A' . $totalRow . ':I' . $totalRow)->applyFromArray([
+            'font' => ['bold' => true, 'size' => 11],
+            'fill' => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['rgb' => 'FEF3C7']],
+            'borders' => ['allBorders' => ['borderStyle' => Border::BORDER_THIN, 'color' => ['rgb' => 'D1D5DB']]],
+            'alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER],
+        ]);
+        $sheet->getStyle('A' . $totalRow)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_RIGHT);
+
+        // -- Auto-dimensionar columnas --
+        foreach (range('A', 'I') as $col) {
+            $sheet->getColumnDimension($col)->setAutoSize(true);
+        }
+
+        // -- Generar archivo y devolver descarga --
+        $filename = 'reporte_chats_' . $this->dateFrom . '_a_' . $this->dateTo . '.xlsx';
+        $tempPath = storage_path('app/' . $filename);
+
+        $writer = new Xlsx($spreadsheet);
+        $writer->save($tempPath);
+
+        return response()->download($tempPath, $filename, [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        ])->deleteFileAfterSend(true);
     }
 
     private function getBaseQuery()

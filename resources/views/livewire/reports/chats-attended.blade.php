@@ -15,6 +15,19 @@
                     </svg>
                     Exportar PDF
                 </button>
+
+                <!-- Export Excel Button -->
+                <button wire:click="exportToExcel" wire:loading.attr="disabled" class="px-4 py-1.5 text-xs font-medium rounded-lg bg-green-600 text-white hover:bg-green-700 transition-colors flex items-center gap-2 disabled:opacity-50">
+                    <svg class="w-4 h-4" wire:loading.remove wire:target="exportToExcel" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                    </svg>
+                    <svg class="w-4 h-4 animate-spin" wire:loading wire:target="exportToExcel" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    <span wire:loading.remove wire:target="exportToExcel">Exportar Excel</span>
+                    <span wire:loading wire:target="exportToExcel">Generando...</span>
+                </button>
                 
                 <!-- Quick Date Buttons -->
                 <button wire:click="setQuickDate('today')" class="px-3 py-1.5 text-xs font-medium rounded-lg transition-colors {{ $dateFrom === now()->format('Y-m-d') && $dateTo === now()->format('Y-m-d') ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200' }}">
@@ -310,26 +323,31 @@
             <table class="w-full text-sm">
                 <thead>
                     <tr class="border-b border-gray-200 bg-gray-50">
-                        <th class="text-left py-3 px-3 font-medium text-gray-600">ID</th>
                         <th class="text-left py-3 px-3 font-medium text-gray-600">Nombre</th>
                         <th class="text-left py-3 px-3 font-medium text-gray-600">WhatsApp</th>
+                        <th class="text-left py-3 px-3 font-medium text-gray-600">Canal</th>
                         <th class="text-left py-3 px-3 font-medium text-gray-600">Etiquetas</th>
-                        <th class="text-left py-3 px-3 font-medium text-gray-600">Último Contacto</th>
                         <th class="text-left py-3 px-3 font-medium text-gray-600">Fecha Creación</th>
                         <th class="text-left py-3 px-3 font-medium text-gray-600">Agente Principal</th>
                         <th class="text-center py-3 px-3 font-medium text-gray-600">Enviados</th>
                         <th class="text-center py-3 px-3 font-medium text-gray-600">Recibidos</th>
-                        <th class="text-center py-3 px-3 font-medium text-gray-600">Total</th>
+                        <th class="text-center py-3 px-3 font-medium text-gray-600">Conversaciones</th>
                     </tr>
                 </thead>
                 <tbody>
                     @forelse($this->contactsTable as $contact)
                         <tr class="border-b border-gray-100 hover:bg-gray-50">
-                            <td class="py-3 px-3 text-gray-500">{{ $contact->id }}</td>
                             <td class="py-3 px-3">
                                 <div class="font-medium text-gray-800">{{ $contact->name ?: $contact->push_name ?: '-' }}</div>
                             </td>
                             <td class="py-3 px-3 text-gray-600">{{ $contact->phone_number }}</td>
+                            <td class="py-3 px-3">
+                                @if($contact->channel)
+                                    <span class="px-2 py-0.5 text-xs rounded-full bg-indigo-100 text-indigo-700">{{ $contact->channel->name }}</span>
+                                @else
+                                    <span class="text-gray-400 text-xs">-</span>
+                                @endif
+                            </td>
                             <td class="py-3 px-3">
                                 <div class="flex flex-wrap gap-1">
                                     @forelse($contact->labelRelations as $label)
@@ -342,29 +360,33 @@
                                 </div>
                             </td>
                             <td class="py-3 px-3">
-                                @if($contact->last_message_at)
-                                    <div class="text-gray-800">{{ \Carbon\Carbon::parse($contact->last_message_at)->format('d/m/Y') }}</div>
-                                    <div class="text-xs text-gray-400">{{ \Carbon\Carbon::parse($contact->last_message_at)->format('H:i') }}</div>
+                                @if($contact->first_message_at)
+                                    <div class="text-gray-800">{{ \Carbon\Carbon::parse($contact->first_message_at)->format('d/m/Y') }}</div>
+                                    <div class="text-xs text-gray-400">{{ \Carbon\Carbon::parse($contact->first_message_at)->format('H:i') }}</div>
                                 @else
                                     <span class="text-gray-400">-</span>
                                 @endif
                             </td>
-                            <td class="py-3 px-3 text-gray-600">{{ $contact->created_at->format('d/m/Y') }}</td>
                             <td class="py-3 px-3">
                                 @if($contact->assignedUser)
                                     <div class="text-gray-800">{{ $contact->assignedUser->name }}</div>
-                                    <div class="text-xs text-gray-400">ID: {{ $contact->assignedUser->id }}</div>
                                 @else
                                     <span class="text-gray-400">Sin asignar</span>
                                 @endif
                             </td>
                             <td class="text-center py-3 px-3 text-blue-600 font-medium">{{ number_format($contact->sent_messages) }}</td>
                             <td class="text-center py-3 px-3 text-green-600 font-medium">{{ number_format($contact->received_messages) }}</td>
-                            <td class="text-center py-3 px-3 font-bold text-gray-800">{{ number_format($contact->total_messages) }}</td>
+                            <td class="text-center py-3 px-3 font-bold">
+                                @if($contact->sent_messages > 0 && $contact->received_messages > 0)
+                                    <span class="text-green-600">1</span>
+                                @else
+                                    <span class="text-gray-400">0</span>
+                                @endif
+                            </td>
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="10" class="py-8 text-center text-gray-500">No hay contactos con actividad en el período seleccionado</td>
+                            <td colspan="9" class="py-8 text-center text-gray-500">No hay contactos con actividad en el período seleccionado</td>
                         </tr>
                     @endforelse
                 </tbody>
@@ -630,7 +652,7 @@
         const contactRows = document.querySelectorAll('#contacts-table-section tbody tr');
         contactRows.forEach(row => {
             const cells = row.querySelectorAll('td');
-            if (cells.length >= 10) {
+            if (cells.length >= 9) {
                 contactsTable += `<tr>
                     <td style="padding: 6px; border: 1px solid #ddd; font-size: 11px;">${cells[0].textContent.trim()}</td>
                     <td style="padding: 6px; border: 1px solid #ddd; font-size: 11px;">${cells[1].textContent.trim()}</td>
@@ -638,10 +660,9 @@
                     <td style="padding: 6px; border: 1px solid #ddd; font-size: 11px;">${cells[3].textContent.trim()}</td>
                     <td style="padding: 6px; border: 1px solid #ddd; font-size: 11px;">${cells[4].textContent.trim()}</td>
                     <td style="padding: 6px; border: 1px solid #ddd; font-size: 11px;">${cells[5].textContent.trim()}</td>
-                    <td style="padding: 6px; border: 1px solid #ddd; font-size: 11px;">${cells[6].textContent.trim()}</td>
+                    <td style="padding: 6px; border: 1px solid #ddd; font-size: 11px; text-align: center;">${cells[6].textContent.trim()}</td>
                     <td style="padding: 6px; border: 1px solid #ddd; font-size: 11px; text-align: center;">${cells[7].textContent.trim()}</td>
                     <td style="padding: 6px; border: 1px solid #ddd; font-size: 11px; text-align: center;">${cells[8].textContent.trim()}</td>
-                    <td style="padding: 6px; border: 1px solid #ddd; font-size: 11px; text-align: center;">${cells[9].textContent.trim()}</td>
                 </tr>`;
             }
         });
@@ -716,20 +737,19 @@
                 <table>
                     <thead>
                         <tr>
-                            <th style="font-size: 11px;">ID</th>
                             <th style="font-size: 11px;">Nombre</th>
                             <th style="font-size: 11px;">WhatsApp</th>
+                            <th style="font-size: 11px;">Canal</th>
                             <th style="font-size: 11px;">Etiquetas</th>
-                            <th style="font-size: 11px;">Último Contacto</th>
-                            <th style="font-size: 11px;">Creación</th>
+                            <th style="font-size: 11px;">Fecha Creación</th>
                             <th style="font-size: 11px;">Agente</th>
                             <th style="font-size: 11px; text-align: center;">Env.</th>
                             <th style="font-size: 11px; text-align: center;">Rec.</th>
-                            <th style="font-size: 11px; text-align: center;">Total</th>
+                            <th style="font-size: 11px; text-align: center;">Conv.</th>
                         </tr>
                     </thead>
                     <tbody>
-                        ${contactsTable || '<tr><td colspan="10" style="text-align: center; padding: 20px;">Sin datos de contactos</td></tr>'}
+                        ${contactsTable || '<tr><td colspan="9" style="text-align: center; padding: 20px;">Sin datos de contactos</td></tr>'}
                     </tbody>
                 </table>
                 
