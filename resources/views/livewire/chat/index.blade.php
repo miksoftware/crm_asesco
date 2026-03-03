@@ -88,16 +88,16 @@
                     </div>
 
                     <!-- Label Filter & Sync Button -->
-                    <div class="flex items-center gap-2">
+                    <div class="flex items-center gap-1">
                         <select wire:model.live="labelFilter" 
-                                class="flex-1 px-2 py-1.5 border border-gray-300 rounded-lg text-xs focus:ring-2 focus:ring-green-500">
+                                class="min-w-0 flex-1 px-2 py-1.5 border border-gray-300 rounded-lg text-xs focus:ring-2 focus:ring-green-500 truncate">
                             <option value="">Todas las etiquetas</option>
                             @foreach($this->availableLabels as $label)
                                 <option value="{{ $label->id }}">{{ $label->name }}</option>
                             @endforeach
                         </select>
                         @if($labelFilter)
-                            <button wire:click="clearLabelFilter" class="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg" title="Limpiar filtro">
+                            <button wire:click="clearLabelFilter" class="flex-shrink-0 p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg" title="Limpiar filtro">
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
                                 </svg>
@@ -107,7 +107,7 @@
                         <button wire:click="syncMessages" 
                                 wire:loading.attr="disabled"
                                 wire:target="syncMessages"
-                                class="p-1.5 text-gray-500 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors disabled:opacity-50"
+                                class="flex-shrink-0 p-1.5 text-gray-500 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors disabled:opacity-50"
                                 title="Sincronizar mensajes">
                             <svg wire:loading.remove wire:target="syncMessages" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
@@ -120,7 +120,7 @@
                         <!-- New Chat Button -->
                         @if($canSend)
                             <button wire:click="openNewChatModal" 
-                                    class="p-1.5 text-gray-500 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors"
+                                    class="flex-shrink-0 p-1.5 text-gray-500 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors"
                                     title="Nueva conversación">
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
