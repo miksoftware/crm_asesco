@@ -44,7 +44,7 @@
 
         <div class="flex-1 flex overflow-hidden">
             <!-- Left Column -->
-            <div class="w-64 min-w-[240px] flex-shrink-0 bg-white border-r border-gray-200 flex flex-col">
+            <div class="w-80 min-w-[300px] flex-shrink-0 bg-white border-r border-gray-200 flex flex-col">
                 <!-- Search & Filter -->
                 <div class="p-3 border-b border-gray-200 space-y-2">
                     <div class="relative">
