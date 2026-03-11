@@ -65,4 +65,17 @@ Route::middleware('auth')->group(function () {
 
     // Backup & Restore (solo usuario ID 1)
     Route::get('/backup-restore', BackupRestore::class)->name('backup-restore');
+    Route::get('/backup-restore/download/{filename}', function (string $filename) {
+        if (auth()->id() !== 1) {
+            abort(403);
+        }
+        $safeName = basename($filename);
+        $path = storage_path('app/private/backups/' . $safeName);
+        if (!file_exists($path)) {
+            abort(404);
+        }
+        return response()->download($path, $safeName, [
+            'Content-Type' => 'application/octet-stream',
+        ]);
+    })->name('backup.download');
 });

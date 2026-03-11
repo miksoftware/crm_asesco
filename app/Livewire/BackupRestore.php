@@ -60,7 +60,7 @@ class BackupRestore extends Component
         $this->isBackingUp = true;
 
         try {
-            $backupDir = storage_path('app/backups');
+            $backupDir = storage_path('app/private/backups');
             if (!is_dir($backupDir)) {
                 mkdir($backupDir, 0750, true);
             }
@@ -145,23 +145,24 @@ class BackupRestore extends Component
         }
     }
 
-    public function downloadBackup(string $filename): mixed
+    public function downloadBackup(string $filename)
     {
         if (auth()->user()->id !== 1) {
             abort(403);
         }
 
-        $path = storage_path('app/backups/' . basename($filename));
+        $safeName = basename($filename);
+        $path = storage_path('app/private/backups/' . $safeName);
 
         if (!file_exists($path)) {
             $this->dispatch('toast', type: 'error', message: 'Archivo no encontrado');
-            return null;
+            return;
         }
 
         return response()->streamDownload(function () use ($path) {
             readfile($path);
-        }, basename($filename), [
-            'Content-Type' => 'application/sql',
+        }, $safeName, [
+            'Content-Type' => 'application/octet-stream',
         ]);
     }
 
@@ -194,7 +195,7 @@ class BackupRestore extends Component
 
         try {
             $safeName = basename($filename);
-            $filePath = storage_path('app/backups/' . $safeName);
+            $filePath = storage_path('app/private/backups/' . $safeName);
 
             if (!file_exists($filePath)) {
                 $this->dispatch('toast', type: 'error', message: 'Archivo no encontrado');
@@ -233,7 +234,7 @@ class BackupRestore extends Component
 
             $filename = 'restore_' . date('Y-m-d_His') . '.sql';
             $this->backupFile->storeAs('backups', $filename, 'local');
-            $filePath = storage_path('app/backups/' . $filename);
+            $filePath = storage_path('app/private/backups/' . $filename);
 
             $this->executeSqlFile($filePath);
             $this->dispatch('toast', type: 'success', message: 'Base de datos restaurada exitosamente desde archivo subido');
