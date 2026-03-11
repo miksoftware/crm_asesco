@@ -7,8 +7,8 @@ use Livewire\WithFileUploads;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Facades\Process;
 use Illuminate\Support\Facades\DB;
+use PDO;
 
 #[Layout('layouts.app')]
 #[Title('Backup & Restore')]
@@ -45,7 +45,6 @@ class BackupRestore extends Component
             }
         }
 
-        // Sort by timestamp descending (newest first)
         usort($backups, fn($a, $b) => $b['timestamp'] - $a['timestamp']);
 
         return $backups;
@@ -61,12 +60,6 @@ class BackupRestore extends Component
         $this->isBackingUp = true;
 
         try {
-            $dbHost = config('database.connections.mysql.host');
-            $dbPort = config('database.connections.mysql.port', '3306');
-            $dbName = config('database.connections.mysql.database');
-            $dbUser = config('database.connections.mysql.username');
-            $dbPass = config('database.connections.mysql.password');
-
             $backupDir = storage_path('app/backups');
             if (!is_dir($backupDir)) {
                 mkdir($backupDir, 0750, true);
@@ -75,24 +68,76 @@ class BackupRestore extends Component
             $filename = 'backup_' . date('Y-m-d_His') . '.sql';
             $filePath = $backupDir . DIRECTORY_SEPARATOR . $filename;
 
-            // Build mysqldump command
-            $command = sprintf(
-                'mysqldump --host=%s --port=%s --user=%s --password=%s --single-transaction --routines --triggers --add-drop-table %s',
-                escapeshellarg($dbHost),
-                escapeshellarg($dbPort),
-                escapeshellarg($dbUser),
-                escapeshellarg($dbPass),
-                escapeshellarg($dbName)
-            );
+            $pdo = DB::connection()->getPdo();
+            $dbName = DB::getDatabaseName();
 
-            $result = Process::run($command);
-
-            if ($result->successful()) {
-                file_put_contents($filePath, $result->output());
-                $this->dispatch('toast', type: 'success', message: 'Backup creado exitosamente: ' . $filename);
-            } else {
-                $this->dispatch('toast', type: 'error', message: 'Error al crear backup: ' . $result->errorOutput());
+            $output = fopen($filePath, 'w');
+            if ($output === false) {
+                throw new \RuntimeException('No se pudo crear el archivo de backup');
             }
+
+            // Header
+            fwrite($output, "-- Backup generado: " . date('Y-m-d H:i:s') . "\n");
+            fwrite($output, "-- Base de datos: {$dbName}\n");
+            fwrite($output, "SET FOREIGN_KEY_CHECKS=0;\n");
+            fwrite($output, "SET SQL_MODE='NO_AUTO_VALUE_ON_ZERO';\n");
+            fwrite($output, "SET AUTOCOMMIT=0;\n");
+            fwrite($output, "START TRANSACTION;\n\n");
+
+            // Get all tables
+            $tables = $pdo->query("SHOW TABLES")->fetchAll(PDO::FETCH_COLUMN);
+
+            foreach ($tables as $table) {
+                // DROP + CREATE TABLE
+                fwrite($output, "-- Tabla: `{$table}`\n");
+                fwrite($output, "DROP TABLE IF EXISTS `{$table}`;\n");
+
+                $createTable = $pdo->query("SHOW CREATE TABLE `{$table}`")->fetch(PDO::FETCH_ASSOC);
+                fwrite($output, $createTable['Create Table'] . ";\n\n");
+
+                // Export data in batches
+                $count = $pdo->query("SELECT COUNT(*) FROM `{$table}`")->fetchColumn();
+
+                if ($count > 0) {
+                    $batchSize = 500;
+                    $offset = 0;
+
+                    // Get column names
+                    $columns = $pdo->query("SHOW COLUMNS FROM `{$table}`")->fetchAll(PDO::FETCH_COLUMN);
+                    $columnList = implode('`, `', $columns);
+
+                    while ($offset < $count) {
+                        $rows = $pdo->query("SELECT * FROM `{$table}` LIMIT {$batchSize} OFFSET {$offset}")->fetchAll(PDO::FETCH_ASSOC);
+
+                        if (empty($rows)) break;
+
+                        $values = [];
+                        foreach ($rows as $row) {
+                            $rowValues = [];
+                            foreach ($row as $value) {
+                                if ($value === null) {
+                                    $rowValues[] = 'NULL';
+                                } else {
+                                    $rowValues[] = $pdo->quote($value);
+                                }
+                            }
+                            $values[] = '(' . implode(', ', $rowValues) . ')';
+                        }
+
+                        fwrite($output, "INSERT INTO `{$table}` (`{$columnList}`) VALUES\n" . implode(",\n", $values) . ";\n");
+
+                        $offset += $batchSize;
+                    }
+                }
+
+                fwrite($output, "\n");
+            }
+
+            fwrite($output, "SET FOREIGN_KEY_CHECKS=1;\n");
+            fwrite($output, "COMMIT;\n");
+            fclose($output);
+
+            $this->dispatch('toast', type: 'success', message: 'Backup creado exitosamente: ' . $filename);
         } catch (\Exception $e) {
             $this->dispatch('toast', type: 'error', message: 'Error: ' . $e->getMessage());
         } finally {
@@ -114,7 +159,7 @@ class BackupRestore extends Component
         }
 
         return response()->streamDownload(function () use ($path) {
-            echo file_get_contents($path);
+            readfile($path);
         }, basename($filename), [
             'Content-Type' => 'application/sql',
         ]);
@@ -156,30 +201,10 @@ class BackupRestore extends Component
                 return;
             }
 
-            $dbHost = config('database.connections.mysql.host');
-            $dbPort = config('database.connections.mysql.port', '3306');
-            $dbName = config('database.connections.mysql.database');
-            $dbUser = config('database.connections.mysql.username');
-            $dbPass = config('database.connections.mysql.password');
-
-            $command = sprintf(
-                'mysql --host=%s --port=%s --user=%s --password=%s %s',
-                escapeshellarg($dbHost),
-                escapeshellarg($dbPort),
-                escapeshellarg($dbUser),
-                escapeshellarg($dbPass),
-                escapeshellarg($dbName)
-            );
-
-            $result = Process::run($command . ' < ' . escapeshellarg($filePath));
-
-            if ($result->successful()) {
-                $this->dispatch('toast', type: 'success', message: 'Base de datos restaurada exitosamente desde: ' . $safeName);
-            } else {
-                $this->dispatch('toast', type: 'error', message: 'Error al restaurar: ' . $result->errorOutput());
-            }
+            $this->executeSqlFile($filePath);
+            $this->dispatch('toast', type: 'success', message: 'Base de datos restaurada exitosamente desde: ' . $safeName);
         } catch (\Exception $e) {
-            $this->dispatch('toast', type: 'error', message: 'Error: ' . $e->getMessage());
+            $this->dispatch('toast', type: 'error', message: 'Error al restaurar: ' . $e->getMessage());
         } finally {
             $this->isRestoring = false;
         }
@@ -193,7 +218,7 @@ class BackupRestore extends Component
         }
 
         $this->validate([
-            'backupFile' => 'required|file|max:512000', // max 500MB
+            'backupFile' => 'required|file|max:512000',
         ]);
 
         $this->isRestoring = true;
@@ -201,39 +226,17 @@ class BackupRestore extends Component
         try {
             $originalName = $this->backupFile->getClientOriginalName();
 
-            // Validate file extension
             if (!str_ends_with(strtolower($originalName), '.sql')) {
                 $this->dispatch('toast', type: 'error', message: 'Solo se permiten archivos .sql');
                 return;
             }
 
-            // Store the file
             $filename = 'restore_' . date('Y-m-d_His') . '.sql';
             $this->backupFile->storeAs('backups', $filename, 'local');
             $filePath = storage_path('app/backups/' . $filename);
 
-            $dbHost = config('database.connections.mysql.host');
-            $dbPort = config('database.connections.mysql.port', '3306');
-            $dbName = config('database.connections.mysql.database');
-            $dbUser = config('database.connections.mysql.username');
-            $dbPass = config('database.connections.mysql.password');
-
-            $command = sprintf(
-                'mysql --host=%s --port=%s --user=%s --password=%s %s',
-                escapeshellarg($dbHost),
-                escapeshellarg($dbPort),
-                escapeshellarg($dbUser),
-                escapeshellarg($dbPass),
-                escapeshellarg($dbName)
-            );
-
-            $result = Process::run($command . ' < ' . escapeshellarg($filePath));
-
-            if ($result->successful()) {
-                $this->dispatch('toast', type: 'success', message: 'Base de datos restaurada exitosamente desde archivo subido');
-            } else {
-                $this->dispatch('toast', type: 'error', message: 'Error al restaurar: ' . $result->errorOutput());
-            }
+            $this->executeSqlFile($filePath);
+            $this->dispatch('toast', type: 'success', message: 'Base de datos restaurada exitosamente desde archivo subido');
 
             $this->backupFile = null;
         } catch (\Exception $e) {
@@ -241,6 +244,91 @@ class BackupRestore extends Component
         } finally {
             $this->isRestoring = false;
         }
+    }
+
+    private function executeSqlFile(string $filePath): void
+    {
+        $pdo = DB::connection()->getPdo();
+        $sql = file_get_contents($filePath);
+
+        if ($sql === false) {
+            throw new \RuntimeException('No se pudo leer el archivo SQL');
+        }
+
+        $pdo->setAttribute(PDO::ATTR_EMULATE_PREPARES, true);
+        $pdo->exec("SET FOREIGN_KEY_CHECKS=0");
+
+        // Split by semicolons respecting quotes
+        $statements = $this->splitSqlStatements($sql);
+
+        foreach ($statements as $statement) {
+            $trimmed = trim($statement);
+            if (empty($trimmed) || str_starts_with($trimmed, '--')) {
+                continue;
+            }
+            $pdo->exec($trimmed);
+        }
+
+        $pdo->exec("SET FOREIGN_KEY_CHECKS=1");
+    }
+
+    private function splitSqlStatements(string $sql): array
+    {
+        $statements = [];
+        $current = '';
+        $inString = false;
+        $stringChar = '';
+        $length = strlen($sql);
+
+        for ($i = 0; $i < $length; $i++) {
+            $char = $sql[$i];
+
+            // Handle string literals
+            if ($inString) {
+                $current .= $char;
+                if ($char === '\\' && $i + 1 < $length) {
+                    $current .= $sql[++$i]; // skip escaped char
+                } elseif ($char === $stringChar) {
+                    $inString = false;
+                }
+                continue;
+            }
+
+            // Check for start of string
+            if ($char === '\'' || $char === '"') {
+                $inString = true;
+                $stringChar = $char;
+                $current .= $char;
+                continue;
+            }
+
+            // Check for single-line comment
+            if ($char === '-' && $i + 1 < $length && $sql[$i + 1] === '-') {
+                $end = strpos($sql, "\n", $i);
+                if ($end === false) break;
+                $i = $end;
+                continue;
+            }
+
+            // Semicolon = end of statement
+            if ($char === ';') {
+                $trimmed = trim($current);
+                if (!empty($trimmed)) {
+                    $statements[] = $trimmed;
+                }
+                $current = '';
+                continue;
+            }
+
+            $current .= $char;
+        }
+
+        $trimmed = trim($current);
+        if (!empty($trimmed)) {
+            $statements[] = $trimmed;
+        }
+
+        return $statements;
     }
 
     private function formatBytes(int $bytes): string
