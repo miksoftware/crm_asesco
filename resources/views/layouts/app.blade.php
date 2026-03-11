@@ -44,6 +44,7 @@
             'settings.labels.index' => ['title' => 'Etiquetas', 'parent' => null, 'section' => 'Configuración'],
             'reports.chats-attended' => ['title' => 'Chats Atendidos', 'parent' => null, 'section' => 'Reportes'],
             'help.technical-manual' => ['title' => 'Manual Técnico', 'parent' => null, 'section' => 'Ayuda'],
+            'backup-restore' => ['title' => 'Backup & Restore', 'parent' => null],
         ];
         
         $currentBreadcrumb = $breadcrumbs[$currentRoute] ?? ['title' => 'Dashboard', 'parent' => null];
@@ -296,6 +297,17 @@
                         </div>
                     </template>
                 </div>
+                @endif
+                @if($user && $user->id === 1)
+                <a href="{{ route('backup-restore') }}" 
+                   class="flex items-center px-3 py-3 rounded-lg {{ $currentRoute === 'backup-restore' ? 'bg-gradient-to-r from-primary-500/20 to-secondary-500/20 text-white border-l-4 border-primary-500' : 'text-gray-300 hover:bg-gray-700/50 hover:text-white' }} transition-all group"
+                   :class="sidebarOpen ? 'space-x-3' : 'justify-center'"
+                   :title="!sidebarOpen ? 'Backup & Restore' : ''">
+                    <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"/>
+                    </svg>
+                    <span x-show="sidebarOpen" x-cloak>Backup & Restore</span>
+                </a>
                 @endif
             </nav>
 

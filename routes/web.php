@@ -15,6 +15,7 @@ use App\Livewire\Channels\Create as ChannelsCreate;
 use App\Livewire\Channels\Edit as ChannelsEdit;
 use App\Livewire\Chat\Index as ChatIndex;
 use App\Livewire\Help\TechnicalManual;
+use App\Livewire\BackupRestore;
 use App\Livewire\Campaigns\Index as CampaignsIndex;
 use App\Livewire\Campaigns\Create as CampaignsCreate;
 use App\Livewire\Campaigns\Results as CampaignsResults;
@@ -61,4 +62,7 @@ Route::middleware('auth')->group(function () {
 
     // Help
     Route::get('/ayuda/manual-tecnico', TechnicalManual::class)->name('help.technical-manual');
+
+    // Backup & Restore (solo usuario ID 1)
+    Route::get('/backup-restore', BackupRestore::class)->name('backup-restore');
 });
