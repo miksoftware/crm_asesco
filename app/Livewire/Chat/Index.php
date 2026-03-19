@@ -1862,15 +1862,19 @@ class Index extends Component
                 ->first();
             
             if (!$contact) {
-                $contact = Contact::create([
-                    'channel_id' => $channel->id,
-                    'phone_number' => $groupId,
-                    'remote_jid' => $groupJid,
-                    'is_group' => true,
-                    'group_jid' => $groupJid,
-                    'name' => $groupName, // May be null — will be updated by syncGroupNames
-                    'push_name' => $groupName,
-                ]);
+                $contact = Contact::firstOrCreate(
+                    [
+                        'channel_id' => $channel->id,
+                        'is_group' => true,
+                        'group_jid' => $groupJid,
+                    ],
+                    [
+                        'phone_number' => $groupId,
+                        'remote_jid' => $groupJid,
+                        'name' => $groupName,
+                        'push_name' => $groupName,
+                    ]
+                );
             } else {
                 // Update group name only if we got a real groupName (not pushName)
                 if ($groupName && $groupName !== $contact->name) {
@@ -1943,12 +1947,16 @@ class Index extends Component
                     $safePushName = null;
                 }
             }
-            $contact = Contact::create([
-                'channel_id' => $channel->id,
-                'phone_number' => $phoneNumber,
-                'remote_jid' => $standardJid,
-                'push_name' => $safePushName,
-            ]);
+            $contact = Contact::firstOrCreate(
+                [
+                    'channel_id' => $channel->id,
+                    'phone_number' => $phoneNumber,
+                ],
+                [
+                    'remote_jid' => $standardJid,
+                    'push_name' => $safePushName,
+                ]
+            );
         } else {
             // Update contact if needed
             $updates = [];
