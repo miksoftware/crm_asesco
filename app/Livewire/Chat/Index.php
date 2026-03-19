@@ -234,7 +234,13 @@ class Index extends Component
 
         // Use last_message_at column instead of expensive EXISTS subquery
         $query = Contact::where('channel_id', $this->selectedChannelId)
-            ->whereNotNull('last_message_at');
+            ->whereNotNull('last_message_at')
+            // Excluir contactos LID sin teléfono real resuelto
+            ->where(function ($q) {
+                $q->where('is_group', true)
+                  ->orWhere('remote_jid', 'like', '%@s.whatsapp.net')
+                  ->orWhere('remote_jid', 'like', '%@g.us');
+            });
 
         // By default (not groups filter), show only individual chats
         // When groups filter is active, show only groups

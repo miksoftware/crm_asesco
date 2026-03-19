@@ -236,11 +236,23 @@ class FixLidContacts extends Command
         $invalidContacts = Contact::where('channel_id', $channelId)
             ->where(function ($q) {
                 $q->where('remote_jid', 'like', '%@broadcast%')
-                  ->orWhere('remote_jid', 'like', '%status@%')
                   ->orWhere('remote_jid', 'like', '%@newsletter%')
-                  ->orWhere('remote_jid', 'like', '%@g.us%')
+                  ->orWhere('remote_jid', 'like', '%status@%')
                   ->orWhereRaw("LOWER(TRIM(push_name)) IN ('você', 'voce')")
-                  ->orWhereRaw("LOWER(TRIM(name)) IN ('você', 'voce')");
+                  ->orWhereRaw("LOWER(TRIM(name)) IN ('você', 'voce')")
+                  // Contactos LID: remote_jid contiene @lid o no tiene @s.whatsapp.net ni @g.us
+                  ->orWhere(function ($q2) {
+                      $q2->where('is_group', false)
+                         ->orWhereNull('is_group');
+                      $q2->where(function ($q3) {
+                          $q3->where('remote_jid', 'like', '%@lid%')
+                             ->orWhere(function ($q4) {
+                                 $q4->where('remote_jid', 'not like', '%@s.whatsapp.net')
+                                    ->where('remote_jid', 'not like', '%@g.us');
+                             })
+                             ->orWhereNull('remote_jid');
+                      });
+                  });
             })
             ->get();
         
