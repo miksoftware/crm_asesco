@@ -1,6 +1,6 @@
 #!/bin/bash
 
-PROJECT_NAME="crm"
+PROJECT_NAME="crm-asesco"
 
 # ============================================
 # Script de Deploy Automatico para Laravel
@@ -105,7 +105,17 @@ echo -e "${YELLOW}[7/8] Reiniciando servicios...${NC}"
 docker exec -w /var/www/html ${PROJECT_NAME}_php php artisan queue:restart 2>/dev/null || true
 
 cd "$PROJECT_DIR"
-docker restart ${PROJECT_NAME}_php ${PROJECT_NAME}_nginx ${PROJECT_NAME}_queue ${PROJECT_NAME}_reverb ${PROJECT_NAME}_evolution_listener 2>&1
+
+# Reiniciar contenedores que existan
+ALL_SERVICES="php nginx queue reverb evolution_listener"
+for SVC in $ALL_SERVICES; do
+    CONTAINER="${PROJECT_NAME}_${SVC}"
+    if docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER}$"; then
+        docker restart "$CONTAINER" 2>/dev/null && echo -e "${GREEN}  OK $CONTAINER reiniciado${NC}" || true
+    else
+        echo -e "${YELLOW}  SKIP $CONTAINER no existe (agregar al docker-compose.yml)${NC}"
+    fi
+done
 sleep 3
 echo -e "${GREEN}OK Servicios reiniciados${NC}"
 echo ""
@@ -116,10 +126,11 @@ echo ""
 echo -e "${YELLOW}[8/8] Verificando servicios...${NC}"
 
 for SVC in php nginx queue reverb evolution_listener redis mysql; do
-    if docker ps --format '{{.Names}}' | grep -q "${PROJECT_NAME}_${SVC}"; then
-        echo -e "${GREEN}  OK ${PROJECT_NAME}_${SVC} corriendo${NC}"
+    CONTAINER="${PROJECT_NAME}_${SVC}"
+    if docker ps --format '{{.Names}}' | grep -q "^${CONTAINER}$"; then
+        echo -e "${GREEN}  OK $CONTAINER corriendo${NC}"
     else
-        echo -e "${RED}  FALTA ${PROJECT_NAME}_${SVC} no esta corriendo${NC}"
+        echo -e "${RED}  FALTA $CONTAINER no esta corriendo${NC}"
     fi
 done
 echo ""

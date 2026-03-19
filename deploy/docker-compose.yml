@@ -1,40 +1,42 @@
-name: crm
+name: crm-asesco
 
 services:
   php:
     build: .
-    image: crm-php
-    container_name: crm_php
+    image: crm-asesco-php
+    container_name: crm-asesco_php
     working_dir: /var/www/html
     volumes:
       - ./src:/var/www/html
       - ./php-config/custom.ini:/usr/local/etc/php/conf.d/custom.ini
     networks:
-      - crm_network
+      - crm-asesco_network
     restart: unless-stopped
     depends_on:
-      - mysql
-      - redis
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     environment:
       - APP_ENV=production
       - APP_DEBUG=false
 
   mysql:
     image: mysql:8.0
-    container_name: crm_mysql
+    container_name: crm-asesco_mysql
     restart: unless-stopped
     command: --default-authentication-plugin=mysql_native_password --innodb-buffer-pool-size=256M
     environment:
       MYSQL_ROOT_PASSWORD: root123
-      MYSQL_DATABASE: crm_db
-      MYSQL_USER: crm_user
-      MYSQL_PASSWORD: zTXGTxGKgfe9X2Ys
+      MYSQL_DATABASE: crm-asesco_db
+      MYSQL_USER: crm-asesco_user
+      MYSQL_PASSWORD: d25G7CUSWMmV5pfQ
     volumes:
-      - crm_mysql_data:/var/lib/mysql
+      - crm-asesco_mysql_data:/var/lib/mysql
     ports:
       - "3308:3306"
     networks:
-      - crm_network
+      - crm-asesco_network
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-proot123"]
       interval: 10s
@@ -44,22 +46,22 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: crm_redis
+    container_name: crm-asesco_redis
     restart: unless-stopped
     command: redis-server --appendonly yes --maxmemory 128mb --maxmemory-policy allkeys-lru
     volumes:
-      - crm_redis_data:/data
+      - crm-asesco_redis_data:/data
     networks:
-      - crm_network
+      - crm-asesco_network
     healthcheck:
-      test: [CMD, redis-cli, ping]
+      test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
 
   nginx:
     image: nginx:alpine
-    container_name: crm_nginx
+    container_name: crm-asesco_nginx
     restart: unless-stopped
     ports:
       - "8002:80"
@@ -68,28 +70,24 @@ services:
       - ./nginx.conf:/etc/nginx/conf.d/default.conf
     depends_on:
       - php
-      - reverb
     networks:
-      - crm_network
+      - crm-asesco_network
 
   # ============================================
   # Laravel Queue Worker
   # ============================================
-  # Procesa jobs asíncronos: envío de mensajes,
-  # descarga de media, etc.
   queue:
-    image: crm-php
-    container_name: crm_queue
+    image: crm-asesco-php
+    container_name: crm-asesco_queue
     working_dir: /var/www/html
     command: php artisan queue:work redis --sleep=3 --tries=3 --max-time=3600 --memory=256
     volumes:
       - ./src:/var/www/html
       - ./php-config/custom.ini:/usr/local/etc/php/conf.d/custom.ini
     depends_on:
-      - redis
-      - mysql
+      - php
     networks:
-      - crm_network
+      - crm-asesco_network
     restart: unless-stopped
     environment:
       - APP_ENV=production
@@ -98,11 +96,9 @@ services:
   # ============================================
   # Laravel Reverb - Servidor WebSocket
   # ============================================
-  # Recibe eventos de Broadcasting de Laravel y los envía
-  # a los navegadores conectados via Echo/Pusher protocol.
   reverb:
-    build: .
-    container_name: crm_reverb
+    image: crm-asesco-php
+    container_name: crm-asesco_reverb
     working_dir: /var/www/html
     command: php artisan reverb:start --host=0.0.0.0 --port=6001
     volumes:
@@ -111,9 +107,9 @@ services:
     ports:
       - "6001:6001"
     depends_on:
-      - redis
+      - php
     networks:
-      - crm_network
+      - crm-asesco_network
     restart: unless-stopped
     environment:
       - APP_ENV=production
@@ -122,31 +118,27 @@ services:
   # ============================================
   # Evolution API WebSocket Listener
   # ============================================
-  # Conecta al socket.io de Evolution API, recibe eventos
-  # de WhatsApp y los re-emite al Broadcasting de Laravel.
-  # Requiere Node.js para el cliente socket.io.
   evolution-listener:
-    build: .
-    container_name: crm_evolution_listener
+    image: crm-asesco-php
+    container_name: crm-asesco_evolution_listener
     working_dir: /var/www/html
     command: php artisan evolution:listen
     volumes:
       - ./src:/var/www/html
       - ./php-config/custom.ini:/usr/local/etc/php/conf.d/custom.ini
     depends_on:
-      - redis
-      - reverb
+      - php
     networks:
-      - crm_network
+      - crm-asesco_network
     restart: unless-stopped
     environment:
       - APP_ENV=production
       - APP_DEBUG=false
 
 networks:
-  crm_network:
+  crm-asesco_network:
     driver: bridge
 
 volumes:
-  crm_mysql_data:
-  crm_redis_data:
+  crm-asesco_mysql_data:
+  crm-asesco_redis_data:
