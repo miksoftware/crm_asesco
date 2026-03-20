@@ -37,23 +37,47 @@ class MessageService
 
             $apiRecipient = $recipient;
         } else {
-            $contact = Contact::firstOrCreate(
-                [
-                    'channel_id' => $channelId,
-                    'phone_number' => $this->normalizePhoneNumber($recipient),
-                ],
-                [
-                    'name' => null,
-                    'push_name' => null,
-                    'labels' => [],
-                    'metadata' => [],
-                ]
-            );
+            // Detectar si el recipient es un JID completo (@lid o @s.whatsapp.net)
+            $isJid = str_contains($recipient, '@');
+            
+            if ($isJid) {
+                // Buscar contacto por remote_jid (para leads LID)
+                $contact = Contact::where('channel_id', $channelId)
+                    ->where('remote_jid', $recipient)
+                    ->first();
+                
+                if (!$contact) {
+                    // Fallback: buscar por phone_number
+                    $phonePart = explode('@', $recipient)[0];
+                    $contact = Contact::where('channel_id', $channelId)
+                        ->where('phone_number', explode(':', $phonePart)[0])
+                        ->first();
+                }
+                
+                if (!$contact) {
+                    throw new \Exception('Contacto no encontrado para el JID: ' . $recipient);
+                }
+                
+                $apiRecipient = $recipient;
+            } else {
+                $contact = Contact::firstOrCreate(
+                    [
+                        'channel_id' => $channelId,
+                        'phone_number' => $this->normalizePhoneNumber($recipient),
+                    ],
+                    [
+                        'name' => null,
+                        'push_name' => null,
+                        'labels' => [],
+                        'metadata' => [],
+                    ]
+                );
 
-            $apiRecipient = $contact->remote_jid ?? $recipient;
+                $apiRecipient = $contact->remote_jid ?? $recipient;
 
-            if ($apiRecipient && !str_contains($apiRecipient, '@')) {
-                $apiRecipient = $this->normalizePhoneNumber($apiRecipient);
+                if ($apiRecipient && !str_contains($apiRecipient, '@')) {
+                    $apiRecipient = $this->normalizePhoneNumber($apiRecipient);
+                }
             }
         }
 
@@ -232,53 +256,107 @@ class MessageService
                 $phoneNumber = $cleanJidPart;
             }
             
-            // If we couldn't resolve a real phone number, skip this message
+            // Determinar si es un LID sin resolver
+            $isLidLead = false;
+            
             if (!$phoneNumber) {
-                Log::debug('Skipping message - unresolvable phone number (likely LID)', [
+                // No pudimos resolver el número real — crear como Lead LID temporal
+                $phoneNumber = $cleanJidPart;
+                $isLidLead = true;
+                Log::info('Creando lead LID temporal', [
                     'remoteJid' => $remoteJid,
-                    'remoteJidAlt' => $remoteJidAlt,
-                    'jidPart' => $cleanJidPart,
+                    'lid' => $cleanJidPart,
+                    'pushName' => $pushName,
                 ]);
-                return null;
             }
             
-            $standardJid = $phoneNumber . '@s.whatsapp.net';
+            // ⭐ DEDUPLICACIÓN: Si resolvimos un número real, buscar y fusionar contacto LID previo
+            if (!$isLidLead) {
+                $existingLidContact = Contact::where('channel_id', $channel->id)
+                    ->where('is_lid', true)
+                    ->where(function ($q) use ($cleanJidPart) {
+                        $q->where('lid_jid', $cleanJidPart)
+                          ->orWhere('phone_number', $cleanJidPart);
+                    })
+                    ->first();
+                
+                if ($existingLidContact) {
+                    // Fusionar el contacto LID con el número real
+                    Log::info('Auto-fusionando contacto LID con número real', [
+                        'lid_contact_id' => $existingLidContact->id,
+                        'lid' => $cleanJidPart,
+                        'real_phone' => $phoneNumber,
+                    ]);
+                    $contact = $existingLidContact->resolveLid($phoneNumber, $channel->id);
+                    // El contacto ya está resuelto, saltar la creación/actualización normal
+                    goto messageProcessing;
+                }
+            }
             
-            $contact = Contact::where('channel_id', $channel->id)
-                ->where('phone_number', $phoneNumber)
-                ->first();
+            $standardJid = $isLidLead
+                ? $remoteJid  // Mantener JID original (@lid) para poder responder
+                : $phoneNumber . '@s.whatsapp.net';
+            
+            // Limpiar pushName
+            $safePushName = null;
+            if ($pushName && !in_array(strtolower(trim($pushName)), ['você', 'voce'])) {
+                $safePushName = $pushName;
+            }
+            
+            // Para LIDs, buscar también por lid_jid para evitar duplicados
+            if ($isLidLead) {
+                $contact = Contact::where('channel_id', $channel->id)
+                    ->where(function ($q) use ($phoneNumber, $cleanJidPart) {
+                        $q->where('phone_number', $phoneNumber)
+                          ->orWhere('lid_jid', $cleanJidPart);
+                    })
+                    ->first();
+            } else {
+                $contact = Contact::where('channel_id', $channel->id)
+                    ->where('phone_number', $phoneNumber)
+                    ->first();
+            }
 
             if (!$contact) {
                 $contact = Contact::create([
                     'channel_id' => $channel->id,
                     'phone_number' => $phoneNumber,
                     'remote_jid' => $standardJid,
-                    'push_name' => ($pushName && !in_array(strtolower(trim($pushName)), ['você', 'voce'])) ? $pushName : null,
+                    'is_lid' => $isLidLead,
+                    'lid_jid' => $isLidLead ? $cleanJidPart : null,
+                    'push_name' => $safePushName,
+                    'name' => $safePushName,
                     'labels' => [],
                     'metadata' => [],
                 ]);
             } else {
                 $updates = [];
-                if ($contact->remote_jid !== $standardJid) {
+                
+                // Si el contacto era LID y ahora tenemos número real, resolver
+                if ($contact->is_lid && !$isLidLead) {
+                    $updates['is_lid'] = false;
+                    $updates['remote_jid'] = $standardJid;
+                    if ($contact->lid_jid) {
+                        \App\Models\LidMapping::createMapping($contact->lid_jid, $phoneNumber, $messageId, $channel->id);
+                    }
+                } elseif (!$contact->is_lid && $contact->remote_jid !== $standardJid) {
                     $updates['remote_jid'] = $standardJid;
                 }
-                if ($pushName && $contact->push_name !== $pushName) {
-                    // Nunca sobreescribir con "Você"/"Voce" (nombre propio de WhatsApp)
-                    $lowerPush = strtolower(trim($pushName));
-                    if ($lowerPush !== 'você' && $lowerPush !== 'voce') {
-                        $updates['push_name'] = $pushName;
-                        // Also update name if contact has no custom name set
-                        if (!$contact->name) {
-                            $updates['name'] = $pushName;
-                        }
+                
+                if ($safePushName && $contact->push_name !== $safePushName) {
+                    $updates['push_name'] = $safePushName;
+                    if (!$contact->name) {
+                        $updates['name'] = $safePushName;
                     }
                 }
+                
                 if (!empty($updates)) {
                     $contact->update($updates);
                 }
             }
         }
         
+        messageProcessing:
         // Normalize message data (unwrap viewOnce messages, etc.)
         $normalizedMessage = $this->normalizeMessageData($data['message'] ?? []);
         
@@ -356,6 +434,12 @@ class MessageService
             );
         }
         
+        // ⭐ AUTO-RESOLVE LID: Si el contacto es LID y envía un contacto VCard,
+        // intentar extraer el número real para desenmascarar el lead.
+        if ($contact->is_lid && !$contact->isResolvedLid() && $messageType === 'contact') {
+            $this->tryResolveLidFromVCard($contact, $data['message'] ?? []);
+        }
+        
         return $message;
     }
 
@@ -384,6 +468,51 @@ class MessageService
                 'error' => $e->getMessage(),
             ]);
             return null;
+        }
+    }
+
+    /**
+     * Intentar resolver un contacto LID a partir de una VCard enviada.
+     * Extrae números de teléfono del formato VCard de WhatsApp.
+     */
+    private function tryResolveLidFromVCard(Contact $contact, array $messageData): void
+    {
+        try {
+            $vcard = $messageData['contactMessage']['vcard']
+                ?? $messageData['contactsArrayMessage']['contacts'][0]['vcard']
+                ?? null;
+
+            if (!$vcard) {
+                return;
+            }
+
+            // Extraer números de teléfono del VCard (formato TEL:+573XXXXXXXXX o TEL;...)
+            preg_match_all('/TEL[^:]*:[\s]*\+?([0-9\s\-]+)/i', $vcard, $matches);
+
+            if (empty($matches[1])) {
+                return;
+            }
+
+            foreach ($matches[1] as $rawNumber) {
+                $cleanNumber = preg_replace('/[^0-9]/', '', $rawNumber);
+
+                // Validar que sea un número real (mínimo 10 dígitos)
+                if (strlen($cleanNumber) >= 10 && strlen($cleanNumber) <= 15) {
+                    Log::info('LID resuelto via VCard', [
+                        'contact_id' => $contact->id,
+                        'lid' => $contact->lid_jid,
+                        'resolved_phone' => $cleanNumber,
+                    ]);
+
+                    $contact->resolveLid($cleanNumber);
+                    return;
+                }
+            }
+        } catch (\Exception $e) {
+            Log::warning('Error al intentar resolver LID desde VCard', [
+                'contact_id' => $contact->id,
+                'error' => $e->getMessage(),
+            ]);
         }
     }
 

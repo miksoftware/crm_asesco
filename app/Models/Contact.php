@@ -19,6 +19,8 @@ class Contact extends Model
         'remote_jid',
         'is_group',
         'group_jid',
+        'is_lid',
+        'lid_jid',
         'name',
         'push_name',
         'profile_picture',
@@ -32,6 +34,7 @@ class Contact extends Model
         'labels' => 'array',
         'metadata' => 'array',
         'is_group' => 'boolean',
+        'is_lid' => 'boolean',
         'last_message_at' => 'datetime',
     ];
 
@@ -104,6 +107,7 @@ class Contact extends Model
      * Get the display name for the contact.
      * Prioridad: nombre personalizado > push_name > numero de telefono.
      * Si push_name es generico (ej: "Voce", "You"), muestra el numero.
+     * Para leads LID sin nombre, muestra indicador de lead temporal.
      */
     public function getDisplayNameAttribute(): string
     {
@@ -115,7 +119,73 @@ class Contact extends Model
             return $this->push_name;
         }
 
+        if ($this->is_lid && !$this->isResolvedLid()) {
+            return '📱 Lead #' . substr($this->phone_number, -6);
+        }
+
         return $this->phone_number ?? 'Sin nombre';
+    }
+
+    /**
+     * Verifica si este contacto LID ya fue resuelto a un número real.
+     */
+    public function isResolvedLid(): bool
+    {
+        if (!$this->is_lid) {
+            return false;
+        }
+        // Si tiene lid_jid y el phone_number es diferente al lid, está resuelto
+        return $this->lid_jid && $this->phone_number !== $this->lid_jid;
+    }
+
+    /**
+     * Resuelve un contacto LID: actualiza su número real, fusiona historial
+     * si ya existe un contacto con ese número, y actualiza lid_mappings.
+     */
+    public function resolveLid(string $realPhoneNumber, ?int $channelId = null): self
+    {
+        $cleanPhone = preg_replace('/[^0-9]/', '', $realPhoneNumber);
+
+        if (empty($cleanPhone) || strlen($cleanPhone) < 8) {
+            throw new \InvalidArgumentException("Número de teléfono inválido: {$realPhoneNumber}");
+        }
+
+        $channelId = $channelId ?? $this->channel_id;
+
+        // Guardar mapeo LID → teléfono real
+        LidMapping::createMapping($this->lid_jid ?? $this->phone_number, $cleanPhone, null, $channelId);
+
+        // Buscar si ya existe un contacto con el número real en este canal
+        $existingContact = self::where('channel_id', $channelId)
+            ->where('phone_number', $cleanPhone)
+            ->where('id', '!=', $this->id)
+            ->first();
+
+        if ($existingContact) {
+            // Fusionar: mover mensajes del LID al contacto real
+            $this->messages()->update(['contact_id' => $existingContact->id]);
+            $this->labelRelations()->detach();
+
+            // Actualizar last_message_at del contacto destino
+            $latestMsg = $existingContact->messages()->max('sent_at');
+            if ($latestMsg) {
+                $existingContact->update(['last_message_at' => $latestMsg]);
+            }
+
+            // Eliminar el contacto LID
+            $this->delete();
+
+            return $existingContact;
+        }
+
+        // No existe contacto real — actualizar este contacto
+        $this->update([
+            'phone_number' => $cleanPhone,
+            'remote_jid' => $cleanPhone . '@s.whatsapp.net',
+            'is_lid' => false,
+        ]);
+
+        return $this;
     }
 
     /**

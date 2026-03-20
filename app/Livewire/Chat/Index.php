@@ -234,13 +234,7 @@ class Index extends Component
 
         // Use last_message_at column instead of expensive EXISTS subquery
         $query = Contact::where('channel_id', $this->selectedChannelId)
-            ->whereNotNull('last_message_at')
-            // Excluir contactos LID sin teléfono real resuelto
-            ->where(function ($q) {
-                $q->where('is_group', true)
-                  ->orWhere('remote_jid', 'like', '%@s.whatsapp.net')
-                  ->orWhere('remote_jid', 'like', '%@g.us');
-            });
+            ->whereNotNull('last_message_at');
 
         // By default (not groups filter), show only individual chats
         // When groups filter is active, show only groups
@@ -497,8 +491,10 @@ class Index extends Component
         $messageService = app(MessageService::class);
 
         try {
-            // For groups, use the group JID; for individuals, use phone number
-            $recipient = $contact->is_group ? $contact->group_jid : $contact->phone_number;
+            // For groups, use the group JID; for LID leads, use remote_jid; for individuals, use phone number
+            $recipient = $contact->is_group
+                ? $contact->group_jid
+                : ($contact->is_lid ? $contact->remote_jid : $contact->phone_number);
             
             $messageService->sendTextMessage(
                 $this->selectedChannelId,
@@ -1517,6 +1513,9 @@ class Index extends Component
                 Log::info("syncFullHistory desactivado para {$channel->instance_name}");
             }
 
+            // ⭐ Auto-merge: resolver LIDs que ahora tienen mapeo en lid_mappings
+            $lidsMerged = $this->autoMergeLidContacts($channel->id);
+
             $this->isSyncing = false;
             unset($this->conversations);
             unset($this->messages);
@@ -1533,7 +1532,10 @@ class Index extends Component
                 $message .= "Se actualizaron {$contactsUpdated} contactos. ";
             }
             if ($imported > 0) {
-                $message .= "Se importaron {$imported} mensajes.";
+                $message .= "Se importaron {$imported} mensajes. ";
+            }
+            if ($lidsMerged > 0) {
+                $message .= "Se resolvieron {$lidsMerged} leads LID.";
             }
             
             if (!empty(trim($message))) {
@@ -1564,37 +1566,27 @@ class Index extends Component
     private function cleanupInvalidContacts(int $channelId): int
     {
         $invalidContacts = Contact::where('channel_id', $channelId)
-            ->where('is_group', false) // Never delete group contacts
+            ->where('is_group', false)
+            ->where(function ($q) {
+                $q->where('is_lid', false)->orWhereNull('is_lid');
+            })
             ->where(function ($query) {
                 $query
-                    // Status broadcasts
                     ->where('remote_jid', 'like', '%@broadcast%')
                     ->orWhere('remote_jid', 'like', '%status@%')
-                    // Newsletter
                     ->orWhere('remote_jid', 'like', '%@newsletter%')
-                    // "Você" status contacts
                     ->orWhereRaw("LOWER(TRIM(push_name)) = 'você'")
                     ->orWhereRaw("LOWER(TRIM(push_name)) = 'voce'")
                     ->orWhereRaw("LOWER(TRIM(name)) = 'você'")
-                    ->orWhereRaw("LOWER(TRIM(name)) = 'voce'")
-                    // ⭐ Fake phone numbers: LID identifiers that look numeric but aren't Colombian
-                    // Colombian phones: 57 + 10 digits = 12 digits. Anything else is likely a LID.
-                    ->orWhere(function ($q) {
-                        $q->whereRaw("phone_number NOT REGEXP '^57[0-9]{10}$'")
-                          ->whereRaw("phone_number REGEXP '^[0-9]+$'") // Only numeric phone_numbers (skip group JIDs)
-                          ->whereRaw("LENGTH(phone_number) >= 10");    // Only long enough to be confused with a phone
-                    });
+                    ->orWhereRaw("LOWER(TRIM(name)) = 'voce'");
             })
             ->get();
 
         $count = $invalidContacts->count();
 
         foreach ($invalidContacts as $contact) {
-            // Delete messages first (due to foreign key)
             $contact->messages()->delete();
-            // Delete labels
             $contact->labelRelations()->detach();
-            // Delete the contact
             $contact->delete();
         }
 
@@ -1603,6 +1595,45 @@ class Index extends Component
         }
 
         return $count;
+    }
+
+    /**
+     * Auto-fusionar contactos LID que ahora tienen mapeo en lid_mappings.
+     * Se ejecuta al final de cada sincronización.
+     */
+    private function autoMergeLidContacts(int $channelId): int
+    {
+        $merged = 0;
+
+        // Buscar contactos LID sin resolver en este canal
+        $lidContacts = Contact::where('channel_id', $channelId)
+            ->where('is_lid', true)
+            ->get();
+
+        foreach ($lidContacts as $lidContact) {
+            $lid = $lidContact->lid_jid ?? $lidContact->phone_number;
+
+            // Buscar en lid_mappings si ya tenemos el número real
+            $realPhone = \App\Models\LidMapping::findPhoneByLid($lid);
+
+            if ($realPhone) {
+                try {
+                    $lidContact->resolveLid($realPhone, $channelId);
+                    $merged++;
+                    Log::info("Auto-merge LID en sync", [
+                        'lid' => $lid,
+                        'real_phone' => $realPhone,
+                    ]);
+                } catch (\Exception $e) {
+                    Log::warning("Error auto-merge LID", [
+                        'lid' => $lid,
+                        'error' => $e->getMessage(),
+                    ]);
+                }
+            }
+        }
+
+        return $merged;
     }
 
     /**
@@ -1926,23 +1957,52 @@ class Index extends Component
             $phoneNumber = $cleanJidPart;
         }
         
-        // If we couldn't resolve a real phone number, skip this message
+        // If we couldn't resolve a real phone number, create as LID lead
+        $isLidLead = false;
         if (!$phoneNumber) {
-            return false;
+            $phoneNumber = $cleanJidPart;
+            $isLidLead = true;
         }
 
-        // Minimal validation - just ensure we have something
+        // Minimal validation
         if (empty($phoneNumber) || strlen($phoneNumber) < 8) {
             return false;
         }
 
-        // Search for existing contact by phone number (to unify @lid and @s.whatsapp.net)
-        $contact = Contact::where('channel_id', $channel->id)
-            ->where('phone_number', $phoneNumber)
-            ->first();
+        // ⭐ DEDUPLICACIÓN: Si resolvimos número real, buscar y fusionar contacto LID previo
+        if (!$isLidLead) {
+            $existingLidContact = Contact::where('channel_id', $channel->id)
+                ->where('is_lid', true)
+                ->where(function ($q) use ($cleanJidPart) {
+                    $q->where('lid_jid', $cleanJidPart)
+                      ->orWhere('phone_number', $cleanJidPart);
+                })
+                ->first();
+            
+            if ($existingLidContact) {
+                $contact = $existingLidContact->resolveLid($phoneNumber, $channel->id);
+                goto syncMessageProcessing;
+            }
+        }
 
         // Standard JID format for sending messages
-        $standardJid = $phoneNumber . '@s.whatsapp.net';
+        $standardJid = $isLidLead
+            ? $remoteJid  // Mantener JID @lid original
+            : $phoneNumber . '@s.whatsapp.net';
+
+        // Para LIDs, buscar también por lid_jid para evitar duplicados
+        if ($isLidLead) {
+            $contact = Contact::where('channel_id', $channel->id)
+                ->where(function ($q) use ($phoneNumber, $cleanJidPart) {
+                    $q->where('phone_number', $phoneNumber)
+                      ->orWhere('lid_jid', $cleanJidPart);
+                })
+                ->first();
+        } else {
+            $contact = Contact::where('channel_id', $channel->id)
+                ->where('phone_number', $phoneNumber)
+                ->first();
+        }
 
         if (!$contact) {
             // Create new contact - nunca usar "Você"/"Voce" como push_name
@@ -1961,6 +2021,8 @@ class Index extends Component
                 [
                     'remote_jid' => $standardJid,
                     'push_name' => $safePushName,
+                    'is_lid' => $isLidLead,
+                    'lid_jid' => $isLidLead ? $cleanJidPart : null,
                 ]
             );
         } else {
@@ -1975,8 +2037,14 @@ class Index extends Component
                 $updates['push_name'] = $pushName;
             }
             
-            // Always ensure remote_jid is in standard format
-            if ($contact->remote_jid !== $standardJid) {
+            // Si el contacto era LID y ahora tenemos número real, resolver
+            if ($contact->is_lid && !$isLidLead) {
+                $updates['is_lid'] = false;
+                $updates['remote_jid'] = $standardJid;
+                if ($contact->lid_jid) {
+                    \App\Models\LidMapping::createMapping($contact->lid_jid, $phoneNumber, $messageId, $channel->id);
+                }
+            } elseif (!$contact->is_lid && $contact->remote_jid !== $standardJid) {
                 $updates['remote_jid'] = $standardJid;
             }
             
@@ -1986,6 +2054,7 @@ class Index extends Component
         }
         } // End of individual message handling (else block)
 
+        syncMessageProcessing:
         // Extract message content and type
         $messageContent = $msgData['message'] ?? [];
         
