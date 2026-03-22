@@ -491,10 +491,10 @@ class Index extends Component
         $messageService = app(MessageService::class);
 
         try {
-            // For groups, use the group JID; for LID leads, use remote_jid; for individuals, use phone number
-            $recipient = $contact->is_group
-                ? $contact->group_jid
-                : ($contact->is_lid ? $contact->remote_jid : $contact->phone_number);
+            // Siempre usar remote_jid si está disponible (tiene formato @s.whatsapp.net o @lid), de lo contrario fallback a phone_number
+            $recipient = $contact->is_group 
+                ? $contact->group_jid 
+                : ($contact->remote_jid ?? $contact->phone_number);
             
             $messageService->sendTextMessage(
                 $this->selectedChannelId,
@@ -502,6 +502,8 @@ class Index extends Component
                 $text,
                 $contact->is_group
             );
+
+            $this->dispatch('message-sent');
 
             $this->messageText = '';
             unset($this->messages);

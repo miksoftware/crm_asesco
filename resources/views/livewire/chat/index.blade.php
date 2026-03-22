@@ -305,7 +305,7 @@
                              },
                              checkNewMessages() { const c = @js(count($this->messages)); if (c > this.lastMessageCount && !this.userScrolledUp) this.scrollToBottom(); this.lastMessageCount = c; }
                          }"
-                         x-init="scrollToBottom()" @scroll.debounce.100ms="handleScroll()" x-effect="checkNewMessages()" wire:poll.visible.30s="refreshActiveChat">
+                         x-init="scrollToBottom()" @scroll.debounce.100ms="handleScroll()" x-effect="checkNewMessages()" @message-sent.window="setTimeout(() => { userScrolledUp = false; scrollToBottom(); }, 100)" wire:poll.visible.30s="refreshActiveChat">
                         
                         @if($hasMoreMessages)
                             <div class="text-center mb-2">
