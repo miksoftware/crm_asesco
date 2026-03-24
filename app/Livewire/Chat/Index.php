@@ -86,6 +86,10 @@ class Index extends Component
     public string $forwardToNumber = '';
     public string $forwardSearch = '';
 
+    // LID resolution modal
+    public bool $showLidModal = false;
+    public string $lidRealNumber = '';
+
     // Permission flags
     public bool $canSend = false;
     public bool $canManageLabels = false;
@@ -911,6 +915,54 @@ class Index extends Component
         $this->newChatNumber = '';
         $this->newChatMessage = '';
         $this->isCheckingNumber = false;
+    }
+
+    // LID Resolution
+    public function openLidModal(): void
+    {
+        $this->lidRealNumber = '';
+        $this->showLidModal = true;
+    }
+
+    public function closeLidModal(): void
+    {
+        $this->showLidModal = false;
+        $this->lidRealNumber = '';
+    }
+
+    public function resolveLidNumber(): void
+    {
+        $this->validate([
+            'lidRealNumber' => 'required|string|min:10|max:15|regex:/^[0-9]+$/',
+        ], [
+            'lidRealNumber.required' => 'Ingresa el número real del contacto',
+            'lidRealNumber.min' => 'El número debe tener al menos 10 dígitos',
+            'lidRealNumber.max' => 'El número no puede tener más de 15 dígitos',
+            'lidRealNumber.regex' => 'Solo se permiten números (sin espacios, +, ni guiones)',
+        ]);
+
+        $contact = Contact::find($this->selectedContactId);
+        if (!$contact || !$contact->is_lid) {
+            $this->dispatch('toast', type: 'error', message: 'Contacto no encontrado o no es un LID');
+            return;
+        }
+
+        try {
+            $resolvedContact = $contact->resolveLid($this->lidRealNumber, $this->selectedChannelId);
+
+            // Seleccionar el contacto resuelto (puede ser otro si se fusionó)
+            $this->selectedContactId = $resolvedContact->id;
+
+            $this->closeLidModal();
+            unset($this->conversations);
+            unset($this->messages);
+            unset($this->selectedContact);
+
+            $this->dispatch('toast', type: 'success', message: 'Contacto actualizado con el número real: ' . $this->lidRealNumber);
+        } catch (\Exception $e) {
+            Log::error('Error resolviendo LID', ['error' => $e->getMessage()]);
+            $this->dispatch('toast', type: 'error', message: 'Error: ' . $e->getMessage());
+        }
     }
 
     public function startNewChat(): void

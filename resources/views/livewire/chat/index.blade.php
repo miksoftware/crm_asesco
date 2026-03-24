@@ -290,6 +290,21 @@
                         </button>
                     </div>
 
+                    {{-- LID Warning Banner --}}
+                    @if($this->selectedContact->is_lid && !$this->selectedContact->isResolvedLid())
+                        <div class="bg-amber-50 border-b border-amber-200 px-4 py-2.5 flex items-center gap-3">
+                            <svg class="w-5 h-5 text-amber-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"/>
+                            </svg>
+                            <p class="text-sm text-amber-800 flex-1">
+                                Este contacto tiene un identificador temporal de WhatsApp (LID). Para enviar mensajes, busca el número real en WhatsApp Web y asígnalo aquí.
+                            </p>
+                            <button wire:click="openLidModal" class="px-3 py-1.5 bg-amber-500 text-white text-xs font-medium rounded-lg hover:bg-amber-600 transition-colors flex-shrink-0">
+                                Asignar número
+                            </button>
+                        </div>
+                    @endif
+
                     <!-- Messages Container -->
                     <div class="flex-1 overflow-y-auto p-4 space-y-1" id="messages-container"
                          x-data="{ 
@@ -1053,6 +1068,70 @@
                             </button>
                         </div>
                     </div>
+                </div>
+            </div>
+        </div>
+    @endteleport
+
+    <!-- LID Resolution Modal -->
+    @teleport('body')
+        <div x-data="{ show: @entangle('showLidModal') }" x-show="show" x-cloak class="fixed inset-0 z-50 overflow-y-auto">
+            <div class="flex items-center justify-center min-h-screen px-4">
+                <div class="fixed inset-0 bg-black/30 backdrop-blur-sm" x-show="show" x-transition wire:click="closeLidModal"></div>
+                <div class="relative bg-white rounded-2xl shadow-xl w-full max-w-md p-6" x-show="show" x-transition>
+                    <div class="text-center mb-4">
+                        <div class="w-16 h-16 rounded-full bg-amber-100 flex items-center justify-center mx-auto mb-4">
+                            <svg class="w-8 h-8 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"/>
+                            </svg>
+                        </div>
+                        <h3 class="text-lg font-semibold text-gray-900">Número no identificado</h3>
+                        <p class="text-sm text-gray-500 mt-1">Por una restricción de privacidad de WhatsApp, este contacto tiene un identificador temporal (LID) en vez de su número real.</p>
+                    </div>
+                    <div class="bg-gray-50 rounded-xl p-3 mb-4">
+                        <p class="text-xs text-gray-500 mb-1">Cómo encontrar el número real:</p>
+                        <ol class="text-xs text-gray-600 space-y-1 list-decimal list-inside">
+                            <li>Abre WhatsApp Web en tu navegador</li>
+                            <li>Busca la conversación con este contacto</li>
+                            <li>Haz clic en su nombre para ver su número</li>
+                            <li>Copia el número e ingrésalo abajo</li>
+                        </ol>
+                    </div>
+                    <form wire:submit="resolveLidNumber" class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Número real de WhatsApp <span class="text-red-500">*</span></label>
+                            <div class="relative">
+                                <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                    <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"/>
+                                    </svg>
+                                </div>
+                                <input type="text" wire:model="lidRealNumber" 
+                                       class="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500" 
+                                       placeholder="Ej: 573001234567"
+                                       inputmode="numeric">
+                            </div>
+                            <p class="mt-1 text-xs text-gray-500">Incluye el código de país (57 para Colombia) sin el signo +</p>
+                            @error('lidRealNumber') <p class="mt-1 text-sm text-red-600">{{ $message }}</p> @enderror
+                        </div>
+                        <div class="flex gap-3 pt-2">
+                            <button type="button" wire:click="closeLidModal" 
+                                    class="flex-1 px-4 py-2.5 border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50 font-medium transition-colors">
+                                Cancelar
+                            </button>
+                            <button type="submit" 
+                                    class="flex-1 px-4 py-2.5 bg-amber-500 text-white rounded-xl hover:bg-amber-600 font-medium transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                                    wire:loading.attr="disabled"
+                                    wire:target="resolveLidNumber">
+                                <svg wire:loading wire:target="resolveLidNumber" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                                <span wire:loading.remove wire:target="resolveLidNumber">Guardar número</span>
+                                <span wire:loading wire:target="resolveLidNumber">Guardando...</span>
+                            </button>
+                        </div>
+                    </form>
                 </div>
             </div>
         </div>
