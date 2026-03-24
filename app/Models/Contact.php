@@ -157,9 +157,6 @@ class Contact extends Model
             return true;
         }
 
-        // Detectar por formato de número: si no es un teléfono real válido
-        // Números reales: 10-15 dígitos empezando con código de país válido
-        // LIDs: suelen ser 13+ dígitos que no corresponden a ningún país
         $phone = $this->phone_number;
         if (!$phone) {
             return false;
@@ -170,23 +167,26 @@ class Contact extends Model
             return true;
         }
 
-        // Número colombiano válido: 57 + 10 dígitos = 12 dígitos
+        // Número colombiano válido: 57 + 10 dígitos = 12 dígitos exactos
         if (preg_match('/^57\d{10}$/', $phone)) {
             return false;
         }
 
-        // Otros números internacionales válidos: 10-15 dígitos con código de país conocido
-        // Si tiene más de 14 dígitos, probablemente es un LID
-        if (strlen($phone) > 14) {
+        // Si empieza con 57 pero no tiene el formato correcto, es inválido
+        if (str_starts_with($phone, '57')) {
             return true;
         }
 
-        // Si no empieza con un código de país razonable (1-9 seguido de dígitos, 10-14 dígitos total)
-        if (!preg_match('/^[1-9]\d{9,13}$/', $phone)) {
-            return true;
+        // Para números NO colombianos: solo aceptar formatos internacionales razonables
+        // Códigos de país comunes: 1 (USA/CAN), 44 (UK), 34 (España), 52 (México), 
+        // 54 (Argentina), 55 (Brasil), 56 (Chile), 58 (Venezuela), 51 (Perú), 593 (Ecuador)
+        // Rango válido: 10-13 dígitos totales (código país + número local)
+        if (preg_match('/^[1-9]\d{9,12}$/', $phone)) {
+            return false;
         }
 
-        return false;
+        // Todo lo demás (14+ dígitos, formatos raros) necesita resolución
+        return true;
     }
 
     /**

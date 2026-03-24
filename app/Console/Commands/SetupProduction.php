@@ -108,6 +108,9 @@ class SetupProduction extends Command
         // 6. Limpiar y cachear
         // ============================================
         $this->line('[6/7] ⚡ Optimizando caché...');
+        $this->call('config:clear');
+        $this->call('route:clear');
+        $this->call('view:clear');
         $this->call('config:cache');
         $this->call('route:cache');
         $this->call('view:cache');
