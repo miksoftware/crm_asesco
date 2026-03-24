@@ -468,6 +468,14 @@ class Index extends Component
             return;
         }
 
+        // Bloquear envío a contactos sin número real
+        $contact = Contact::find($this->selectedContactId);
+        if ($contact && $contact->needsNumberResolution()) {
+            $this->dispatch('toast', type: 'error', message: 'Debes asignar el número real de este contacto antes de enviar mensajes.');
+            $this->showLidModal = true;
+            return;
+        }
+
         $text = trim($this->messageText);
 
         if (empty($text) && !$this->mediaFile) {
@@ -942,13 +950,53 @@ class Index extends Component
         ]);
 
         $contact = Contact::find($this->selectedContactId);
-        if (!$contact || !$contact->is_lid) {
-            $this->dispatch('toast', type: 'error', message: 'Contacto no encontrado o no es un LID');
+        if (!$contact || !$contact->needsNumberResolution()) {
+            $this->dispatch('toast', type: 'error', message: 'Contacto no encontrado o ya tiene número real');
             return;
         }
 
+        $cleanPhone = preg_replace('/[^0-9]/', '', $this->lidRealNumber);
+
         try {
-            $resolvedContact = $contact->resolveLid($this->lidRealNumber, $this->selectedChannelId);
+            // Si el contacto tiene is_lid=true, usar resolveLid (fusiona automáticamente)
+            if ($contact->is_lid) {
+                $resolvedContact = $contact->resolveLid($cleanPhone, $this->selectedChannelId);
+            } else {
+                // Contacto con número inválido pero sin flag is_lid
+                // Buscar si ya existe un contacto con el número real
+                $existingContact = Contact::where('channel_id', $this->selectedChannelId)
+                    ->where('phone_number', $cleanPhone)
+                    ->where('id', '!=', $contact->id)
+                    ->first();
+
+                if ($existingContact) {
+                    // Fusionar: mover mensajes al contacto existente
+                    $contact->messages()->update(['contact_id' => $existingContact->id]);
+                    $contact->labelRelations()->detach();
+                    
+                    // Actualizar last_message_at
+                    $latestMsg = $existingContact->messages()->max('sent_at');
+                    if ($latestMsg) {
+                        $existingContact->update(['last_message_at' => $latestMsg]);
+                    }
+
+                    $contact->delete();
+                    $resolvedContact = $existingContact;
+                } else {
+                    // Actualizar este contacto con el número real
+                    $oldPhone = $contact->phone_number;
+                    $contact->update([
+                        'phone_number' => $cleanPhone,
+                        'remote_jid' => $cleanPhone . '@s.whatsapp.net',
+                        'is_lid' => false,
+                    ]);
+
+                    // Guardar mapeo LID para futuras resoluciones automáticas
+                    \App\Models\LidMapping::createMapping($oldPhone, $cleanPhone, null, $this->selectedChannelId);
+
+                    $resolvedContact = $contact;
+                }
+            }
 
             // Seleccionar el contacto resuelto (puede ser otro si se fusionó)
             $this->selectedContactId = $resolvedContact->id;
@@ -958,7 +1006,7 @@ class Index extends Component
             unset($this->messages);
             unset($this->selectedContact);
 
-            $this->dispatch('toast', type: 'success', message: 'Contacto actualizado con el número real: ' . $this->lidRealNumber);
+            $this->dispatch('toast', type: 'success', message: 'Número asignado correctamente: ' . $cleanPhone);
         } catch (\Exception $e) {
             Log::error('Error resolviendo LID', ['error' => $e->getMessage()]);
             $this->dispatch('toast', type: 'error', message: 'Error: ' . $e->getMessage());

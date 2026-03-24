@@ -139,6 +139,57 @@ class Contact extends Model
     }
 
     /**
+     * Detecta si este contacto necesita resolución manual de número.
+     * Retorna true si:
+     * - Tiene is_lid=true y no está resuelto
+     * - O su phone_number no es un número colombiano válido (57 + 10 dígitos)
+     *   y no es un grupo
+     */
+    public function needsNumberResolution(): bool
+    {
+        // Grupos no necesitan resolución
+        if ($this->is_group) {
+            return false;
+        }
+
+        // Si está marcado como LID y no resuelto
+        if ($this->is_lid && !$this->isResolvedLid()) {
+            return true;
+        }
+
+        // Detectar por formato de número: si no es un teléfono real válido
+        // Números reales: 10-15 dígitos empezando con código de país válido
+        // LIDs: suelen ser 13+ dígitos que no corresponden a ningún país
+        $phone = $this->phone_number;
+        if (!$phone) {
+            return false;
+        }
+
+        // Si el remote_jid contiene @lid, necesita resolución
+        if ($this->remote_jid && str_contains($this->remote_jid, '@lid')) {
+            return true;
+        }
+
+        // Número colombiano válido: 57 + 10 dígitos = 12 dígitos
+        if (preg_match('/^57\d{10}$/', $phone)) {
+            return false;
+        }
+
+        // Otros números internacionales válidos: 10-15 dígitos con código de país conocido
+        // Si tiene más de 14 dígitos, probablemente es un LID
+        if (strlen($phone) > 14) {
+            return true;
+        }
+
+        // Si no empieza con un código de país razonable (1-9 seguido de dígitos, 10-14 dígitos total)
+        if (!preg_match('/^[1-9]\d{9,13}$/', $phone)) {
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
      * Resuelve un contacto LID: actualiza su número real, fusiona historial
      * si ya existe un contacto con ese número, y actualiza lid_mappings.
      */
