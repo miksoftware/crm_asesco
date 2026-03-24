@@ -139,19 +139,20 @@ class FixLidContacts extends Command
                         $contact->update([
                             'phone_number' => $phoneNumber,
                             'remote_jid' => $phoneNumber . '@s.whatsapp.net',
+                            'is_lid' => false,
                         ]);
                     }
                     $stats['lids_resolved']++;
                 } else {
-                    // No mapping found - delete the LID contact
-                    $this->warn("      ⚠ No se pudo resolver LID: {$lid} - ELIMINANDO");
+                    // No mapping found — marcar como LID lead (NO eliminar, son leads válidos de ads)
+                    $this->warn("      ⚠ No se pudo resolver LID: {$lid} - Marcando como lead LID");
                     
                     if (!$dryRun) {
-                        $contact->messages()->delete();
-                        $contact->labelRelations()->detach();
-                        $contact->delete();
+                        $contact->update([
+                            'is_lid' => true,
+                            'lid_jid' => $lid,
+                        ]);
                     }
-                    $stats['invalid_deleted']++;
                 }
             }
         }
@@ -206,7 +207,11 @@ class FixLidContacts extends Command
     {
         $this->line('  → Corrigiendo remote_jid a formato estándar...');
         
+        // Solo corregir contactos NO-LID (los LID deben mantener su @lid JID)
         $contactsToFix = Contact::where('channel_id', $channelId)
+            ->where(function ($q) {
+                $q->where('is_lid', false)->orWhereNull('is_lid');
+            })
             ->whereRaw("phone_number REGEXP '^[1-9][0-9]{9,14}$'")
             ->whereRaw("remote_jid != CONCAT(phone_number, '@s.whatsapp.net')")
             ->get();

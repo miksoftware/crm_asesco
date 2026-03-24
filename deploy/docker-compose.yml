@@ -11,6 +11,7 @@ services:
       - ./php-config/custom.ini:/usr/local/etc/php/conf.d/custom.ini
     networks:
       - crm-asesco_network
+      - evolution_api_evolution_api_network
     restart: unless-stopped
     depends_on:
       mysql:
@@ -88,6 +89,7 @@ services:
       - php
     networks:
       - crm-asesco_network
+      - evolution_api_evolution_api_network
     restart: unless-stopped
     environment:
       - APP_ENV=production
@@ -138,6 +140,8 @@ services:
 networks:
   crm-asesco_network:
     driver: bridge
+  evolution_api_evolution_api_network:
+    external: true
 
 volumes:
   crm-asesco_mysql_data:
