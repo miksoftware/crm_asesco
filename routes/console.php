@@ -25,3 +25,9 @@ Schedule::command('messages:fix-unread')
     ->hourly()
     ->withoutOverlapping()
     ->runInBackground();
+
+// Enviar recordatorios y mensajes automáticos de promesas de pago (cada minuto)
+Schedule::command('promises:send')
+    ->everyMinute()
+    ->withoutOverlapping()
+    ->runInBackground();

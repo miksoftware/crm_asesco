@@ -13,13 +13,15 @@ class PaymentPromise extends Model
         'promised_date',
         'promised_amount',
         'status',
+        'message_sent',
         'notes',
         'fulfilled_at',
     ];
 
     protected $casts = [
-        'promised_date' => 'date',
+        'promised_date' => 'datetime',
         'promised_amount' => 'decimal:2',
+        'message_sent' => 'boolean',
         'fulfilled_at' => 'datetime',
     ];
 

@@ -110,12 +110,12 @@
                             <!-- Promise Date -->
                             <div>
                                 <label for="promiseDate" class="block text-sm font-medium text-gray-700 mb-1">
-                                    Fecha prometida <span class="text-red-500">*</span>
+                                    Fecha y hora prometida <span class="text-red-500">*</span>
                                 </label>
-                                <input type="date" 
+                                <input type="datetime-local" 
                                        id="promiseDate"
                                        wire:model="promiseDate"
-                                       min="{{ date('Y-m-d') }}"
+                                       min="{{ date('Y-m-d\TH:i') }}"
                                        class="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 text-sm">
                                 @error('promiseDate')
                                     <p class="mt-1 text-sm text-red-600">{{ $message }}</p>
@@ -147,13 +147,16 @@
                             <!-- Notes -->
                             <div>
                                 <label for="promiseNotes" class="block text-sm font-medium text-gray-700 mb-1">
-                                    Notas (opcional)
+                                    Mensaje a enviar (se enviará automáticamente)
                                 </label>
                                 <textarea id="promiseNotes"
                                           wire:model="promiseNotes"
-                                          rows="2"
+                                          rows="3"
                                           class="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 text-sm resize-none"
-                                          placeholder="Agregar notas adicionales..."></textarea>
+                                          placeholder="Escribe el mensaje exacto que se enviará al cliente..."></textarea>
+                                <p class="mt-1 text-xs text-gray-500">
+                                    El mensaje se enviará al cliente exactamente como lo escribas aquí en la fecha y hora indicadas. Quedará registrado con tu nombre.
+                                </p>
                             </div>
                         </div>
 

@@ -20,6 +20,7 @@ use App\Livewire\Campaigns\Index as CampaignsIndex;
 use App\Livewire\Campaigns\Create as CampaignsCreate;
 use App\Livewire\Campaigns\Results as CampaignsResults;
 use App\Livewire\Reports\ChatsAttended as ReportsChatsAttended;
+use App\Livewire\Reports\EffectiveConversations as ReportsEffectiveConversations;
 
 // Guest routes
 Route::middleware('guest')->group(function () {
@@ -46,6 +47,7 @@ Route::middleware('auth')->group(function () {
 
     // Reports
     Route::get('/reportes/chats-atendidos', ReportsChatsAttended::class)->name('reports.chats-attended')->middleware('permission:reportes.ver');
+    Route::get('/reportes/conversaciones-efectivas', ReportsEffectiveConversations::class)->name('reports.effective-conversations')->middleware('permission:reportes.ver');
 
     // Settings - Users
     Route::get('/configuracion/usuarios', UsersIndex::class)->name('settings.users.index')->middleware('permission:usuarios.ver');
