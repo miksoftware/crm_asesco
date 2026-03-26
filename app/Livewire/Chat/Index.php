@@ -406,8 +406,8 @@ class Index extends Component
         $this->resetMessages();
         unset($this->conversations);
 
-        // Sincronizar estado del canal seleccionado desde Evolution API
-        $this->refreshChannelStatus($channelId);
+        // Eliminado: Llamada síncrona a Evolution API que bloqueaba el cambio de canal >10s
+        // $this->refreshChannelStatus($channelId);
 
         // Notificar al frontend para suscribirse al nuevo canal via WebSocket
         $this->dispatch('channel-changed', channelId: $channelId);
@@ -415,8 +415,10 @@ class Index extends Component
 
     /**
      * Refrescar el estado de un canal específico desde Evolution API.
+     * Mantenido por si se necesita llamar explícitamente desde un botón de recarga manual,
+     * pero ya no se llama automáticamente al seleccionar un canal para evitar bloqueos.
      */
-    private function refreshChannelStatus(int $channelId): void
+    public function refreshChannelStatus(int $channelId): void
     {
         try {
             $channel = Channel::find($channelId);
