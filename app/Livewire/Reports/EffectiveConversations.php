@@ -64,6 +64,7 @@ class EffectiveConversations extends Component
                     ->from('messages')
                     ->whereColumn('messages.contact_id', 'contacts.id')
                     ->where('messages.direction', 'outgoing')
+                    ->whereNotNull('messages.user_id')
                     ->whereBetween('messages.sent_at', $dates);
                     
                 if ($this->channelId) {
@@ -167,6 +168,20 @@ class EffectiveConversations extends Component
         return ['labels' => $labels, 'data' => $data];
     }
 
+    #[Computed]
+    public function avgConversationsPerDay(): float
+    {
+        $days = Carbon::parse($this->dateFrom)->diffInDays(Carbon::parse($this->dateTo)) + 1;
+        return $days > 0 ? round($this->totalEffectiveConversations / $days, 1) : 0;
+    }
+
+    #[Computed]
+    public function topAgent(): ?array
+    {
+        $users = $this->effectiveConversationsByUser;
+        return count($users) > 0 ? $users[0] : null;
+    }
+
     private function formatDateLabel(string $dateGroup): string
     {
         return match($this->groupBy) {
@@ -228,6 +243,8 @@ class EffectiveConversations extends Component
         unset($this->totalEffectiveConversations);
         unset($this->effectiveConversationsByUser);
         unset($this->effectiveConversationsByDate);
+        unset($this->avgConversationsPerDay);
+        unset($this->topAgent);
         
         $this->dispatch('charts-updated', [
             'conversationsByDate' => $this->effectiveConversationsByDate,
