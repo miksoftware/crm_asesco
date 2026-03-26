@@ -2356,8 +2356,9 @@ class Index extends Component
     /**
      * Lightweight polling method - only refreshes what's needed.
      * Called every 10 seconds from the outer container.
-     * Only invalidates the cheap computed properties.
+     * Also listens to global notification read events to instant-clear badges.
      */
+    #[On('notifications-updated')]
     public function refreshUnreadCounts(): void
     {
         unset($this->channelUnreadCounts);

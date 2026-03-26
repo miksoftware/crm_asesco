@@ -167,12 +167,26 @@ class NotificationBadge extends Component
             return;
         }
 
-        \App\Models\ChatNotification::where('user_id', $user->id)
-            ->where('is_read', false)
-            ->update([
-                'is_read' => true,
-                'read_at' => now(),
-            ]);
+        // Obtener los canales asignados al usuario
+        $channelIds = $user->channels()->pluck('channels.id');
+
+        if ($channelIds->isNotEmpty()) {
+            // Marcar todas las notificaciones de esos canales como leídas (incluyendo las globales user_id = null)
+            \App\Models\ChatNotification::whereIn('channel_id', $channelIds)
+                ->where('is_read', false)
+                ->update([
+                    'is_read' => true,
+                    'read_at' => now(),
+                ]);
+            
+            // También marcar los mensajes reales subyacentes como leídos para limpiar los badges de los canales
+            \App\Models\Message::whereIn('channel_id', $channelIds)
+                ->where('direction', 'incoming')
+                ->where('is_read', false)
+                ->update([
+                    'is_read' => true
+                ]);
+        }
 
         // Clear computed caches
         unset($this->unreadCount);
@@ -182,6 +196,7 @@ class NotificationBadge extends Component
         $this->lastKnownCount = 0;
 
         $this->dispatch('toast', type: 'success', message: 'Todas las notificaciones marcadas como leídas');
+        $this->dispatch('notifications-updated');
     }
 
     /**
