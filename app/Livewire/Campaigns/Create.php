@@ -142,7 +142,7 @@ class Create extends Component
             } else {
                 $this->dispatch('toast', type: 'success', message: count($this->recipients) . ' destinatarios cargados');
             }
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             $this->dispatch('toast', type: 'error', message: 'Error al procesar el archivo: ' . $e->getMessage());
             $this->recipients = [];
         }

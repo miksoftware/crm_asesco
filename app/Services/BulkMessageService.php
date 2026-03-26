@@ -305,35 +305,87 @@ class BulkMessageService
     {
         $recipients = [];
         
-        if (($handle = fopen($filePath, 'r')) !== false) {
-            $header = fgetcsv($handle, 1000, ',');
-            
-            // Normalizar headers
-            $header = array_map(function ($h) {
-                return strtolower(trim($h));
-            }, $header);
-            
-            while (($row = fgetcsv($handle, 1000, ',')) !== false) {
-                if (count($row) < 1) continue;
-                
-                $data = array_combine($header, array_pad($row, count($header), ''));
-                
-                // Buscar columna de teléfono
-                $phone = $data['telefono'] ?? $data['phone'] ?? $data['numero'] ?? $data['celular'] ?? null;
-                
-                if (!$phone) continue;
-                
-                $recipients[] = [
-                    'phone_number' => $phone,
-                    'name' => $data['nombre'] ?? $data['name'] ?? null,
-                    'val1' => $data['val1'] ?? $data['variable1'] ?? null,
-                    'val2' => $data['val2'] ?? $data['variable2'] ?? null,
-                ];
-            }
-            
-            fclose($handle);
+        if (!file_exists($filePath)) {
+            return [];
+        }
+
+        // Enable auto-detect line endings for older Mac Excel files
+        $originalAutoDetect = ini_get('auto_detect_line_endings');
+        ini_set('auto_detect_line_endings', '1');
+
+        $lines = file($filePath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+        if (empty($lines)) {
+            ini_set('auto_detect_line_endings', $originalAutoDetect);
+            return [];
         }
         
+        // Detectar separador basándose en la primera línea
+        $separator = substr_count($lines[0], ';') > substr_count($lines[0], ',') ? ';' : ',';
+        
+        // Remove BOM from first line
+        $lines[0] = preg_replace('/^[\xef\xbb\xbf]+/', '', $lines[0]);
+        
+        $header = str_getcsv(array_shift($lines), $separator);
+        
+        if (empty($header) || (count($header) === 1 && empty(trim($header[0])))) {
+            ini_set('auto_detect_line_endings', $originalAutoDetect);
+            return [];
+        }
+
+        // Normalizar headers
+        $header = array_map(function ($h) {
+            // Eliminar espacios y caracteres invisibles (como NBSP)
+            return strtolower(trim(preg_replace('/[\x00-\x1F\x7F-\xFF]/', '', $h)));
+        }, $header);
+        
+        foreach ($lines as $line) {
+            $row = str_getcsv($line, $separator);
+            if (empty($row) || (count($row) === 1 && empty(trim($row[0])))) continue;
+            
+            // Pad or slice to match header count
+            if (count($row) > count($header)) {
+                $row = array_slice($row, 0, count($header));
+            } else if (count($row) < count($header)) {
+                $row = array_pad($row, count($header), '');
+            }
+            
+            $data = array_combine($header, $row);
+            
+            // Buscar columna de teléfono (incluso con nombres ligeramente diferentes)
+            $phone = $data['telefono'] ?? $data['phone'] ?? $data['numero'] ?? $data['celular'] ?? null;
+            
+            // Si el header tiene el nombre pero con otros caracteres que se filtraron, intentar busqueda difusa
+            if (!$phone) {
+                foreach ($data as $k => $v) {
+                    if (str_contains($k, 'tel') || str_contains($k, 'cel') || str_contains($k, 'num') || str_contains($k, 'phone')) {
+                        $phone = $v;
+                        break;
+                    }
+                }
+            }
+
+            if (!$phone) continue;
+            
+            // Buscar nombre y variables difusamente si es necesario
+            $name = $data['nombre'] ?? $data['name'] ?? null;
+            if (!$name) {
+                foreach ($data as $k => $v) {
+                    if (str_contains($k, 'nom') || str_contains($k, 'name')) {
+                        $name = $v;
+                        break;
+                    }
+                }
+            }
+
+            $recipients[] = [
+                'phone_number' => trim($phone),
+                'name' => $name ? trim($name) : null,
+                'val1' => isset($data['val1']) ? trim($data['val1']) : (isset($data['variable1']) ? trim($data['variable1']) : null),
+                'val2' => isset($data['val2']) ? trim($data['val2']) : (isset($data['variable2']) ? trim($data['variable2']) : null),
+            ];
+        }
+        
+        ini_set('auto_detect_line_endings', $originalAutoDetect);
         return $recipients;
     }
 }
