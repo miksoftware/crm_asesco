@@ -5,7 +5,6 @@ namespace App\Console\Commands;
 use App\Models\PaymentPromise;
 use App\Services\MessageService;
 use Illuminate\Console\Command;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 
 class SendPaymentPromises extends Command
@@ -61,18 +60,13 @@ class SendPaymentPromises extends Command
             }
 
             try {
-                // Iniciar sesión temporalmente como el usuario que registró la promesa
-                // para que el mensaje enviado quede registrado a su nombre en la base de datos
-                if ($user) {
-                    Auth::loginUsingId($user->id);
-                }
-
                 // Enviar el mensaje usando el texto exacto configurado en "notes"
                 $messageService->sendTextMessage(
                     $contact->channel_id,
                     $contact->phone_number,
                     $promise->notes,
-                    $contact->is_group
+                    $contact->is_group,
+                    $user ? $user->id : null
                 );
 
                 // Marcar como enviado
@@ -83,9 +77,6 @@ class SendPaymentPromises extends Command
             } catch (\Exception $e) {
                 Log::error("Error al enviar mensaje de promesa #{$promise->id}: " . $e->getMessage());
                 $this->error("Error en la promesa #{$promise->id}: " . $e->getMessage());
-            } finally {
-                // Cerrar la sesión temporal para no afectar iteraciones subsecuentes de manera inesperada
-                Auth::logout();
             }
         }
 

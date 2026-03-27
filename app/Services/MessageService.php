@@ -20,7 +20,7 @@ class MessageService
      * Send a text message via Evolution API.
      * Supports both individual and group messages.
      */
-    public function sendTextMessage(int $channelId, string $recipient, string $text, bool $isGroup = false): Message
+    public function sendTextMessage(int $channelId, string $recipient, string $text, bool $isGroup = false, ?int $userId = null): Message
     {
         $channel = Channel::findOrFail($channelId);
 
@@ -85,7 +85,7 @@ class MessageService
         $message = Message::create([
             'contact_id' => $contact->id,
             'channel_id' => $channelId,
-            'user_id' => auth()->id(),
+            'user_id' => $userId ?? auth()->id(),
             'message_id' => null, // Se actualizará cuando el Job lo envíe
             'direction' => 'outgoing',
             'type' => 'text',

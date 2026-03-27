@@ -100,7 +100,7 @@
                             </td>
                             @endif
                             <td class="px-6 py-4 font-bold text-gray-800">
-                                ${{ number_format($promise->amount, 2) }}
+                                ${{ number_format($promise->promised_amount, 2) }}
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap">
                                 @if($promise->message_sent)
@@ -188,7 +188,7 @@
                             </div>
                             <div class="bg-orange-50/50 p-3 rounded-xl border border-orange-100">
                                 <p class="text-xs font-medium text-orange-600">Monto</p>
-                                <p class="text-sm font-bold text-gray-900 mt-1">${{ number_format($selectedPromise->amount, 2) }}</p>
+                                <p class="text-sm font-bold text-gray-900 mt-1">${{ number_format($selectedPromise->promised_amount, 2) }}</p>
                             </div>
                         </div>
 
