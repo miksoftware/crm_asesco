@@ -338,13 +338,16 @@ class Index extends Component
             return collect();
         }
 
-        $query = Message::with('user')
+        // Traer los N mensajes más recientes, luego ordenarlos ASC para mostrar
+        $messages = Message::with('user')
             ->where('contact_id', $this->selectedContactId)
             ->where('channel_id', $this->selectedChannelId)
-            ->orderBy('sent_at', 'asc')
-            ->orderBy('id', 'asc');
-
-        $messages = $query->limit($this->messagesLimit)->get();
+            ->orderBy('sent_at', 'desc')
+            ->orderBy('id', 'desc')
+            ->limit($this->messagesLimit)
+            ->get()
+            ->sortBy([['sent_at', 'asc'], ['id', 'asc']])
+            ->values();
 
         if ($messages->isNotEmpty()) {
             $this->oldestMessageId = $messages->first()->id;
@@ -521,6 +524,7 @@ class Index extends Component
 
             $this->messageText = '';
             unset($this->messages);
+            unset($this->conversations);
         } catch (\Exception $e) {
             Log::error('Error sending message', ['error' => $e->getMessage()]);
             $this->dispatch('toast', type: 'error', message: 'Error: ' . $e->getMessage());
