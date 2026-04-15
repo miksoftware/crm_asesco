@@ -166,18 +166,46 @@ window.CrmChat = {
 
         const isOutgoing = data.direction === 'outgoing';
         const time = data.sent_at 
-            ? new Date(data.sent_at).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })
-            : new Date().toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' });
+            ? new Date(data.sent_at).toLocaleString('es-CO', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })
+            : new Date().toLocaleString('es-CO', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' });
+
+        // Separador de fecha si es un día diferente al último mensaje
+        let dateSeparatorHtml = '';
+        const msgDate = data.sent_at ? new Date(data.sent_at) : new Date();
+        const msgDateStr = msgDate.toISOString().split('T')[0];
+        const existingSeparator = container.querySelector(`[data-date-separator="${msgDateStr}"]`);
+        
+        if (!existingSeparator) {
+            const today = new Date();
+            const yesterday = new Date(today);
+            yesterday.setDate(yesterday.getDate() - 1);
+            
+            let dateLabel;
+            if (msgDateStr === today.toISOString().split('T')[0]) {
+                dateLabel = 'Hoy';
+            } else if (msgDateStr === yesterday.toISOString().split('T')[0]) {
+                dateLabel = 'Ayer';
+            } else {
+                dateLabel = msgDate.toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+            }
+            
+            dateSeparatorHtml = `
+                <div class="flex items-center justify-center my-3" data-date-separator="${msgDateStr}">
+                    <div class="bg-white px-4 py-1.5 rounded-lg shadow-sm text-xs text-gray-600 font-medium">${dateLabel}</div>
+                </div>
+            `;
+        }
 
         // Construir HTML del mensaje
         const messageHtml = this.buildMessageHtml(data, isOutgoing, time);
 
         // Insertar antes del marcador de fin o al final del contenedor
         const endMarker = container.querySelector('#messages-end');
+        const htmlToInsert = dateSeparatorHtml + messageHtml;
         if (endMarker) {
-            endMarker.insertAdjacentHTML('beforebegin', messageHtml);
+            endMarker.insertAdjacentHTML('beforebegin', htmlToInsert);
         } else {
-            container.insertAdjacentHTML('beforeend', messageHtml);
+            container.insertAdjacentHTML('beforeend', htmlToInsert);
         }
     },
 
