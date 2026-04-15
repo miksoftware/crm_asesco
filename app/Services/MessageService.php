@@ -115,7 +115,9 @@ class MessageService
      * Process an incoming message from Evolution API webhook.
      * Requirements: 9.1
      * 
-     * IMPORTANT: Handles LID JIDs using remoteJidAlt field from Evolution API.
+     * Usa LidResolverService para resolución determinista de LIDs.
+     * Si no se puede resolver, crea el contacto con el LID y despacha
+     * un Job de resolución activa en background.
      */
     public function processIncomingMessage(array $webhookData): ?Message
     {
@@ -127,22 +129,17 @@ class MessageService
         
         // Extract message data
         $remoteJid = $data['key']['remoteJid'] ?? '';
-        $remoteJidAlt = $data['key']['remoteJidAlt'] ?? null;
         $messageId = $data['key']['id'] ?? null;
         $pushName = $data['pushName'] ?? null;
         $isFromMe = ($data['key']['fromMe'] ?? false) === true;
         
         // ⭐ SKIP outgoing individual messages (fromMe=true)
-        // Estos llegan con pushName="Você" (nuestro propio nombre en WhatsApp)
-        // y sobreescriben el nombre real del contacto.
-        // Los mensajes salientes ya se guardan en sendTextMessage().
         $isGroupMessage = str_contains($remoteJid, '@g.us');
         if ($isFromMe && !$isGroupMessage) {
             return null;
         }
         
         // ⭐ GROUP MESSAGE HANDLING
-        $isGroupMessage = str_contains($remoteJid, '@g.us');
         $senderName = null;
         $senderPhone = null;
         
@@ -155,31 +152,24 @@ class MessageService
                 $participantPart = explode('@', $participant)[0];
                 $senderPhone = explode(':', $participantPart)[0];
             }
-            $senderName = $pushName; // pushName is the sender's name in groups
+            $senderName = $pushName;
             
-            // For fromMe messages in groups, mark the sender as "Tú"
             if ($isFromMe) {
                 $senderName = 'Tú';
-                // Get our own phone from the channel
                 $senderPhone = $channel->phone_number;
             }
             
             $groupJid = $remoteJid;
-            // ⭐ IMPORTANT: pushName in group messages is the SENDER's name, NOT the group name
-            // Only use groupName field (if present) — never fallback to pushName for group names
             $groupName = $data['groupName'] ?? null;
             
-            // Find or create group contact
             $contact = Contact::where('channel_id', $channel->id)
                 ->where('is_group', true)
                 ->where('group_jid', $groupJid)
                 ->first();
             
             if (!$contact) {
-                // Use the group JID part as phone_number placeholder (unique per group)
                 $groupId = explode('@', $groupJid)[0];
                 
-                // If we don't have the group name from the webhook, try to fetch it from the API
                 if (!$groupName) {
                     try {
                         $evolutionApi = app(EvolutionApiService::class);
@@ -204,87 +194,18 @@ class MessageService
                     'metadata' => [],
                 ]);
             } else {
-                // Update group name if we got a real group name from the API
                 if ($groupName && $groupName !== $contact->name) {
                     $contact->update(['name' => $groupName, 'push_name' => $groupName]);
                 }
             }
         } else {
-            // ⭐ INDIVIDUAL MESSAGE HANDLING
-            $phoneNumber = null;
+            // ⭐ INDIVIDUAL MESSAGE HANDLING — Usar LidResolverService
+            $lidResolver = app(\App\Services\LidResolverService::class);
+            $resolution = $lidResolver->resolve($webhookData);
             
-            // Extract from primary JID
-            $jidPart = explode('@', $remoteJid)[0];
-            $cleanJidPart = explode(':', $jidPart)[0];
-            
-            // ⭐ PRIORITY 1: Check remoteJidAlt first (Evolution API sends real phone here when remoteJid is a LID)
-            if ($remoteJidAlt) {
-                $altJidPart = explode('@', $remoteJidAlt)[0];
-                $cleanAltPart = explode(':', $altJidPart)[0];
-                if (preg_match('/^[1-9]\d{9,14}$/', $cleanAltPart)) {
-                    $phoneNumber = $cleanAltPart;
-                    // Auto-create LID mapping if the primary JID is different
-                    if ($cleanJidPart !== $cleanAltPart) {
-                        \App\Models\LidMapping::createMapping($cleanJidPart, $phoneNumber, $messageId, $channel->id);
-                    }
-                }
-            }
-            
-            // ⭐ PRIORITY 2: Check LID mapping table
-            if (!$phoneNumber) {
-                $mapped = \App\Models\LidMapping::findPhoneByLid($cleanJidPart);
-                if ($mapped) {
-                    $phoneNumber = $mapped;
-                }
-            }
-            
-            // ⭐ PRIORITY 3: Use JID number only if it matches a valid Colombian phone format
-            // LID identifiers can look numeric (e.g., 12034548703442) but aren't real phones.
-            // Colombian numbers: 57 + 10 digits = 12 digits exactly.
-            if (!$phoneNumber && preg_match('/^57\d{10}$/', $cleanJidPart)) {
-                $phoneNumber = $cleanJidPart;
-            }
-            
-            // Determinar si es un LID sin resolver
-            $isLidLead = false;
-            
-            if (!$phoneNumber) {
-                // No pudimos resolver el número real — descartar silenciosamente
-                // Los LIDs sin resolver no deben crear contactos temporales
-                Log::debug('Mensaje de LID sin resolver descartado', [
-                    'remoteJid' => $remoteJid,
-                    'lid' => $cleanJidPart,
-                    'pushName' => $pushName,
-                ]);
-                return null;
-            }
-            
-            // ⭐ DEDUPLICACIÓN: Si resolvimos un número real, buscar y fusionar contacto LID previo
-            if (!$isLidLead) {
-                $existingLidContact = Contact::where('channel_id', $channel->id)
-                    ->where('is_lid', true)
-                    ->where(function ($q) use ($cleanJidPart) {
-                        $q->where('lid_jid', $cleanJidPart)
-                          ->orWhere('phone_number', $cleanJidPart);
-                    })
-                    ->first();
-                
-                if ($existingLidContact) {
-                    // Fusionar el contacto LID con el número real
-                    Log::info('Auto-fusionando contacto LID con número real', [
-                        'lid_contact_id' => $existingLidContact->id,
-                        'lid' => $cleanJidPart,
-                        'real_phone' => $phoneNumber,
-                    ]);
-                    $contact = $existingLidContact->resolveLid($phoneNumber, $channel->id);
-                    // El contacto ya está resuelto, saltar la creación/actualización normal
-                    goto messageProcessing;
-                }
-            }
-            
-            $standardJid = $isLidLead
-                ? $remoteJid  // Mantener JID original (@lid) para poder responder
-                : $phoneNumber . '@s.whatsapp.net';
+            $phoneNumber = $resolution->phoneNumber;
+            $isLidLead = $resolution->isUnresolvedLid();
+            $lidPart = $resolution->lidIdentifier;
             
             // Limpiar pushName
             $safePushName = null;
@@ -292,44 +213,85 @@ class MessageService
                 $safePushName = $pushName;
             }
             
-            // Para LIDs, buscar también por lid_jid para evitar duplicados
+            // Si resolvimos el número, buscar y fusionar contacto LID previo
+            if (!$isLidLead && $lidPart) {
+                $existingLidContact = Contact::where('channel_id', $channel->id)
+                    ->where('is_lid', true)
+                    ->where(function ($q) use ($lidPart) {
+                        $q->where('lid_jid', $lidPart)
+                          ->orWhere('phone_number', $lidPart);
+                    })
+                    ->first();
+                
+                if ($existingLidContact) {
+                    Log::info('Auto-fusionando contacto LID con número real', [
+                        'lid_contact_id' => $existingLidContact->id,
+                        'lid' => $lidPart,
+                        'real_phone' => $phoneNumber,
+                    ]);
+                    $contact = $existingLidContact->resolveLid($phoneNumber, $channel->id);
+                    goto messageProcessing;
+                }
+            }
+            
+            // Determinar JID para almacenar
+            if ($isLidLead) {
+                // LID sin resolver: usar el LID como identificador operativo
+                $contactPhone = $lidPart;
+                $contactJid = $remoteJid; // Mantener @lid para poder responder
+            } else {
+                $contactPhone = $phoneNumber;
+                $contactJid = $phoneNumber . '@s.whatsapp.net';
+            }
+            
+            // Buscar contacto existente
             if ($isLidLead) {
                 $contact = Contact::where('channel_id', $channel->id)
-                    ->where(function ($q) use ($phoneNumber, $cleanJidPart) {
-                        $q->where('phone_number', $phoneNumber)
-                          ->orWhere('lid_jid', $cleanJidPart);
+                    ->where(function ($q) use ($contactPhone, $lidPart) {
+                        $q->where('phone_number', $contactPhone)
+                          ->orWhere('lid_jid', $lidPart);
                     })
                     ->first();
             } else {
                 $contact = Contact::where('channel_id', $channel->id)
-                    ->where('phone_number', $phoneNumber)
+                    ->where('phone_number', $contactPhone)
                     ->first();
             }
 
             if (!$contact) {
                 $contact = Contact::create([
                     'channel_id' => $channel->id,
-                    'phone_number' => $phoneNumber,
-                    'remote_jid' => $standardJid,
+                    'phone_number' => $contactPhone,
+                    'remote_jid' => $contactJid,
                     'is_lid' => $isLidLead,
-                    'lid_jid' => $isLidLead ? $cleanJidPart : null,
+                    'lid_jid' => $isLidLead ? $lidPart : null,
                     'push_name' => $safePushName,
                     'name' => $safePushName,
                     'labels' => [],
                     'metadata' => [],
                 ]);
+                
+                // ⭐ CAPA 3: Despachar Job de resolución activa para LIDs
+                if ($isLidLead) {
+                    \App\Jobs\ResolveLidToPhoneJob::dispatch(
+                        contactId: $contact->id,
+                        lidJid: $remoteJid,
+                        instanceName: $channel->instance_name,
+                    )->delay(now()->addSeconds(5));
+                }
             } else {
                 $updates = [];
                 
                 // Si el contacto era LID y ahora tenemos número real, resolver
                 if ($contact->is_lid && !$isLidLead) {
                     $updates['is_lid'] = false;
-                    $updates['remote_jid'] = $standardJid;
+                    $updates['phone_number'] = $phoneNumber;
+                    $updates['remote_jid'] = $contactJid;
                     if ($contact->lid_jid) {
                         \App\Models\LidMapping::createMapping($contact->lid_jid, $phoneNumber, $messageId, $channel->id);
                     }
-                } elseif (!$contact->is_lid && $contact->remote_jid !== $standardJid) {
-                    $updates['remote_jid'] = $standardJid;
+                } elseif (!$contact->is_lid && $contact->remote_jid !== $contactJid) {
+                    $updates['remote_jid'] = $contactJid;
                 }
                 
                 if ($safePushName && $contact->push_name !== $safePushName) {

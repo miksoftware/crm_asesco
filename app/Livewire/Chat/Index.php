@@ -470,10 +470,10 @@ class Index extends Component
             return;
         }
 
-        // Bloquear envío a contactos sin número real
+        // Bloquear envío solo si el contacto no tiene ningún JID operativo
         $contact = Contact::find($this->selectedContactId);
-        if ($contact && $contact->needsNumberResolution()) {
-            $this->dispatch('toast', type: 'error', message: 'Debes asignar el número real de este contacto antes de enviar mensajes.');
+        if ($contact && !$contact->remote_jid && $contact->needsNumberResolution()) {
+            $this->dispatch('toast', type: 'error', message: 'Este contacto no tiene un identificador válido para enviar mensajes.');
             $this->showLidModal = true;
             return;
         }

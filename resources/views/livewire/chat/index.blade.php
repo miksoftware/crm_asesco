@@ -290,16 +290,16 @@
                         </button>
                     </div>
 
-                    {{-- LID Warning Banner --}}
+                    {{-- LID Info Banner (no bloquea envío) --}}
                     @if($this->selectedContact->needsNumberResolution())
-                        <div class="bg-amber-50 border-b border-amber-200 px-4 py-2.5 flex items-center gap-3">
-                            <svg class="w-5 h-5 text-amber-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"/>
+                        <div class="bg-amber-50 border-b border-amber-200 px-4 py-2 flex items-center gap-3">
+                            <svg class="w-4 h-4 text-amber-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
                             </svg>
-                            <p class="text-sm text-amber-800 flex-1">
-                                Este contacto no tiene un número real asignado. Busca su número en WhatsApp Web y asígnalo para poder enviar mensajes.
+                            <p class="text-xs text-amber-700 flex-1">
+                                Contacto sin número real asignado. Puedes continuar la conversación normalmente. Si conoces el número, asígnalo para mejor seguimiento.
                             </p>
-                            <button wire:click="openLidModal" class="px-3 py-1.5 bg-amber-500 text-white text-xs font-medium rounded-lg hover:bg-amber-600 transition-colors flex-shrink-0">
+                            <button wire:click="openLidModal" class="px-2.5 py-1 bg-amber-500 text-white text-xs font-medium rounded-lg hover:bg-amber-600 transition-colors flex-shrink-0">
                                 Asignar número
                             </button>
                         </div>
@@ -516,16 +516,6 @@
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"/>
                                 </svg>
                                 <span>Canal desconectado. Puedes ver los chats pero no enviar mensajes. Ve a <strong>Canales</strong> para reconectar.</span>
-                            </div>
-                        @elseif($this->selectedContact && $this->selectedContact->needsNumberResolution())
-                            <div class="flex items-center gap-3 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
-                                <svg class="w-5 h-5 flex-shrink-0 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/>
-                                </svg>
-                                <span class="flex-1">No puedes enviar mensajes a este contacto hasta asignar su número real.</span>
-                                <button wire:click="openLidModal" class="px-3 py-1.5 bg-amber-500 text-white text-xs font-medium rounded-lg hover:bg-amber-600 transition-colors flex-shrink-0">
-                                    Asignar número
-                                </button>
                             </div>
                         @elseif($canSend)
                             <!-- Media Preview -->
