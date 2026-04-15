@@ -30,15 +30,6 @@ class Results extends Component
 
     public function mount(Campaign $campaign): void
     {
-        $user = auth()->user();
-        $isAdmin = $user->hasRole('admin');
-
-        // Verificar acceso
-        if (!$isAdmin && $campaign->user_id !== $user->id) {
-            session()->flash('error', 'No tienes acceso a esta campaña');
-            $this->redirect(route('campaigns.index'));
-        }
-
         $this->campaign = $campaign;
     }
 

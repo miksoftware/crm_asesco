@@ -236,49 +236,36 @@ class MessageService
             
             // Determinar JID para almacenar
             if ($isLidLead) {
-                // LID sin resolver: usar el LID como identificador operativo
-                $contactPhone = $lidPart;
-                $contactJid = $remoteJid; // Mantener @lid para poder responder
+                // LID sin resolver: descartar silenciosamente
+                // No crear contactos con LID — el cliente no quiere verlos
+                Log::debug('Mensaje de LID sin resolver descartado', [
+                    'remoteJid' => $remoteJid,
+                    'lid' => $lidPart,
+                    'pushName' => $pushName,
+                ]);
+                return null;
             } else {
                 $contactPhone = $phoneNumber;
                 $contactJid = $phoneNumber . '@s.whatsapp.net';
             }
             
             // Buscar contacto existente
-            if ($isLidLead) {
-                $contact = Contact::where('channel_id', $channel->id)
-                    ->where(function ($q) use ($contactPhone, $lidPart) {
-                        $q->where('phone_number', $contactPhone)
-                          ->orWhere('lid_jid', $lidPart);
-                    })
-                    ->first();
-            } else {
-                $contact = Contact::where('channel_id', $channel->id)
-                    ->where('phone_number', $contactPhone)
-                    ->first();
-            }
+            $contact = Contact::where('channel_id', $channel->id)
+                ->where('phone_number', $contactPhone)
+                ->first();
 
             if (!$contact) {
                 $contact = Contact::create([
                     'channel_id' => $channel->id,
                     'phone_number' => $contactPhone,
                     'remote_jid' => $contactJid,
-                    'is_lid' => $isLidLead,
-                    'lid_jid' => $isLidLead ? $lidPart : null,
+                    'is_lid' => false,
+                    'lid_jid' => null,
                     'push_name' => $safePushName,
                     'name' => $safePushName,
                     'labels' => [],
                     'metadata' => [],
                 ]);
-                
-                // ⭐ CAPA 3: Despachar Job de resolución activa para LIDs
-                if ($isLidLead) {
-                    \App\Jobs\ResolveLidToPhoneJob::dispatch(
-                        contactId: $contact->id,
-                        lidJid: $remoteJid,
-                        instanceName: $channel->instance_name,
-                    )->delay(now()->addSeconds(5));
-                }
             } else {
                 $updates = [];
                 

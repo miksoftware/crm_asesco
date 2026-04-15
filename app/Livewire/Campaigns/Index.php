@@ -44,22 +44,17 @@ class Index extends Component
     #[Computed]
     public function campaigns()
     {
-        $user = auth()->user();
-        $isAdmin = $user->hasRole('admin');
-
         $query = Campaign::with(['channel', 'user']);
 
-        // Si no es admin, solo ver sus campañas
-        if (!$isAdmin) {
-            $query->where('user_id', $user->id);
-        }
-
-        // Filtro de búsqueda
+        // Filtro de búsqueda (nombre campaña, canal o usuario)
         if (!empty($this->search)) {
             $searchTerm = '%' . $this->search . '%';
             $query->where(function ($q) use ($searchTerm) {
                 $q->where('name', 'like', $searchTerm)
                     ->orWhereHas('channel', function ($q) use ($searchTerm) {
+                        $q->where('name', 'like', $searchTerm);
+                    })
+                    ->orWhereHas('user', function ($q) use ($searchTerm) {
                         $q->where('name', 'like', $searchTerm);
                     });
             });
