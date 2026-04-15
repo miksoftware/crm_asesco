@@ -249,14 +249,14 @@ class MessageService
             $isLidLead = false;
             
             if (!$phoneNumber) {
-                // No pudimos resolver el número real — crear como Lead LID temporal
-                $phoneNumber = $cleanJidPart;
-                $isLidLead = true;
-                Log::info('Creando lead LID temporal', [
+                // No pudimos resolver el número real — descartar silenciosamente
+                // Los LIDs sin resolver no deben crear contactos temporales
+                Log::debug('Mensaje de LID sin resolver descartado', [
                     'remoteJid' => $remoteJid,
                     'lid' => $cleanJidPart,
                     'pushName' => $pushName,
                 ]);
+                return null;
             }
             
             // ⭐ DEDUPLICACIÓN: Si resolvimos un número real, buscar y fusionar contacto LID previo

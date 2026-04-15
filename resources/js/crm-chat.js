@@ -166,8 +166,8 @@ window.CrmChat = {
 
         const isOutgoing = data.direction === 'outgoing';
         const time = data.sent_at 
-            ? new Date(data.sent_at).toLocaleString('es-CO', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })
-            : new Date().toLocaleString('es-CO', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' });
+            ? new Date(data.sent_at).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })
+            : new Date().toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' });
 
         // Separador de fecha si es un día diferente al último mensaje
         let dateSeparatorHtml = '';
