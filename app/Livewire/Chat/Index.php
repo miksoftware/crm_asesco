@@ -48,7 +48,7 @@ class Index extends Component
 
     public string $messageText = '';
 
-    public int $messagesLimit = 50;
+    public int $messagesLimit = 150;
     public ?int $oldestMessageId = null;
     public bool $hasMoreMessages = true;
 
