@@ -305,15 +305,13 @@ class EffectiveConversations extends Component
             ->pluck('contact_id')
             ->unique();
 
-        // Primary agent per contact (user who sent most outgoing messages in range)
+        // Primary agent per contact (user who sent the LAST outgoing message in range)
         $primaryAgents = Message::whereIn('contact_id', $contactIds)
             ->where('direction', 'outgoing')
             ->whereNotNull('user_id')
             ->whereBetween('sent_at', $dates)
             ->when($this->channelId, fn($q) => $q->where('channel_id', $this->channelId))
-            ->groupBy('contact_id', 'user_id')
-            ->selectRaw('contact_id, user_id, COUNT(*) as total')
-            ->orderByDesc('total')
+            ->orderByDesc('sent_at')
             ->get()
             ->unique('contact_id')
             ->keyBy('contact_id');
