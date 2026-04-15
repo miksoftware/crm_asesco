@@ -123,7 +123,7 @@
             </div>
             <p class="text-2xl font-bold text-gray-800 mt-3">{{ number_format($this->totalConversations) }}</p>
             <p class="text-xs text-gray-500">Conversaciones</p>
-            <p class="text-[10px] text-gray-400 mt-1">Contactos únicos</p>
+            <p class="text-[10px] text-gray-400 mt-1">Enviado + respuesta recibida</p>
         </div>
 
         <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
@@ -368,11 +368,11 @@
                                 @endif
                             </td>
                             <td class="py-3 px-3">
-                                @if($contact->assignedUser)
-                                    <div class="text-gray-800">{{ $contact->assignedUser->name }}</div>
-                                @else
-                                    <span class="text-gray-400">Sin asignar</span>
-                                @endif
+                                @php
+                                    $realAgentId = $primaryAgents[$contact->id] ?? null;
+                                    $realAgentName = $realAgentId ? ($agentUsers[$realAgentId] ?? 'Sin asignar') : 'Sin asignar';
+                                @endphp
+                                <div class="text-gray-800">{{ $realAgentName }}</div>
                             </td>
                             <td class="text-center py-3 px-3 text-blue-600 font-medium">{{ number_format($contact->sent_messages) }}</td>
                             <td class="text-center py-3 px-3 text-green-600 font-medium">{{ number_format($contact->received_messages) }}</td>

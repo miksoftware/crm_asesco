@@ -80,7 +80,30 @@ class ChatsAttended extends Component
     #[Computed]
     public function totalConversations(): int
     {
-        return $this->getBaseQuery()->distinct('contact_id')->count('contact_id');
+        $dates = [$this->dateFrom . ' 00:00:00', $this->dateTo . ' 23:59:59'];
+
+        // Conversación = contacto donde se envió al menos 1 mensaje saliente Y se recibió al menos 1 incoming
+        $query = DB::table('contacts')
+            ->whereExists(function ($q) use ($dates) {
+                $q->select(DB::raw(1))
+                    ->from('messages')
+                    ->whereColumn('messages.contact_id', 'contacts.id')
+                    ->where('messages.direction', 'outgoing')
+                    ->whereNotNull('messages.user_id')
+                    ->whereBetween('messages.sent_at', $dates)
+                    ->when($this->channelId, fn($q) => $q->where('messages.channel_id', $this->channelId))
+                    ->when($this->userId, fn($q) => $q->where('messages.user_id', $this->userId));
+            })
+            ->whereExists(function ($q) use ($dates) {
+                $q->select(DB::raw(1))
+                    ->from('messages')
+                    ->whereColumn('messages.contact_id', 'contacts.id')
+                    ->where('messages.direction', 'incoming')
+                    ->whereBetween('messages.sent_at', $dates)
+                    ->when($this->channelId, fn($q) => $q->where('messages.channel_id', $this->channelId));
+            });
+
+        return $query->count();
     }
 
     #[Computed]
@@ -281,11 +304,43 @@ class ChatsAttended extends Component
     }
 
     /**
-     * Tabla detallada de contactos con toda la información solicitada
+     * Obtener el agente principal real de cada contacto en el rango de fechas.
+     * El agente principal es quien envió el último mensaje saliente al contacto.
+     */
+    private function getPrimaryAgentsByContact(array $contactIds): array
+    {
+        if (empty($contactIds)) {
+            return [];
+        }
+
+        $dates = [$this->dateFrom . ' 00:00:00', $this->dateTo . ' 23:59:59'];
+
+        // Subconsulta: para cada contacto, obtener el user_id del último mensaje saliente en el rango
+        $results = DB::table('messages')
+            ->select('contact_id', 'user_id')
+            ->whereIn('contact_id', $contactIds)
+            ->where('direction', 'outgoing')
+            ->whereNotNull('user_id')
+            ->whereBetween('sent_at', $dates)
+            ->when($this->channelId, fn($q) => $q->where('channel_id', $this->channelId))
+            ->orderByDesc('sent_at')
+            ->get()
+            ->unique('contact_id')
+            ->keyBy('contact_id');
+
+        return $results->map(fn($r) => $r->user_id)->toArray();
+    }
+
+    /**
+     * Tabla detallada de contactos con toda la información solicitada.
+     * El agente principal se determina por quién envió el último mensaje saliente,
+     * no por el usuario asignado al chat.
      */
     public function getContactsTableProperty()
     {
-        return Contact::query()
+        $dates = [$this->dateFrom . ' 00:00:00', $this->dateTo . ' 23:59:59'];
+
+        $query = Contact::query()
             ->select([
                 'contacts.id',
                 'contacts.name',
@@ -297,24 +352,47 @@ class ChatsAttended extends Component
             ])
             ->with(['assignedUser:id,name', 'channel:id,name', 'labelRelations:id,name,color'])
             ->withCount([
-                'messages as sent_messages' => function ($q) {
-                    $q->whereBetween('sent_at', [$this->dateFrom . ' 00:00:00', $this->dateTo . ' 23:59:59'])
+                'messages as sent_messages' => function ($q) use ($dates) {
+                    $q->whereBetween('sent_at', $dates)
                       ->where('direction', 'outgoing');
                 },
-                'messages as received_messages' => function ($q) {
-                    $q->whereBetween('sent_at', [$this->dateFrom . ' 00:00:00', $this->dateTo . ' 23:59:59'])
+                'messages as received_messages' => function ($q) use ($dates) {
+                    $q->whereBetween('sent_at', $dates)
                       ->where('direction', 'incoming');
                 },
             ])
-            ->withMin(['messages as first_message_at' => function ($q) {
-                $q->whereBetween('sent_at', [$this->dateFrom . ' 00:00:00', $this->dateTo . ' 23:59:59']);
+            ->withMin(['messages as first_message_at' => function ($q) use ($dates) {
+                $q->whereBetween('sent_at', $dates);
             }], 'sent_at')
-            ->when($this->userId, fn($q) => $q->where('contacts.assigned_user_id', $this->userId))
             ->when($this->channelId, fn($q) => $q->where('contacts.channel_id', $this->channelId))
-            ->whereHas('messages', function ($q) {
-                $q->whereBetween('sent_at', [$this->dateFrom . ' 00:00:00', $this->dateTo . ' 23:59:59']);
-            })
-            ->orderByDesc('first_message_at')
+            ->whereHas('messages', function ($q) use ($dates) {
+                $q->whereBetween('sent_at', $dates);
+            });
+
+        // Si se filtra por agente, filtrar por contactos donde ese agente envió el último mensaje saliente
+        if ($this->userId) {
+            $query->whereExists(function ($sub) use ($dates) {
+                $sub->select(DB::raw(1))
+                    ->from('messages as m_last')
+                    ->whereColumn('m_last.contact_id', 'contacts.id')
+                    ->where('m_last.direction', 'outgoing')
+                    ->whereNotNull('m_last.user_id')
+                    ->whereBetween('m_last.sent_at', $dates)
+                    ->when($this->channelId, fn($q) => $q->where('m_last.channel_id', $this->channelId))
+                    ->where('m_last.user_id', $this->userId)
+                    ->where('m_last.sent_at', '=', function ($inner) use ($dates) {
+                        $inner->select(DB::raw('MAX(m_inner.sent_at)'))
+                            ->from('messages as m_inner')
+                            ->whereColumn('m_inner.contact_id', 'contacts.id')
+                            ->where('m_inner.direction', 'outgoing')
+                            ->whereNotNull('m_inner.user_id')
+                            ->whereBetween('m_inner.sent_at', $dates)
+                            ->when($this->channelId, fn($q) => $q->where('m_inner.channel_id', $this->channelId));
+                    });
+            });
+        }
+
+        return $query->orderByDesc('first_message_at')
             ->paginate($this->perPage);
     }
 
@@ -323,7 +401,9 @@ class ChatsAttended extends Component
      */
     public function getExportData(): array
     {
-        $contacts = Contact::query()
+        $dates = [$this->dateFrom . ' 00:00:00', $this->dateTo . ' 23:59:59'];
+
+        $query = Contact::query()
             ->select([
                 'contacts.id',
                 'contacts.name',
@@ -335,30 +415,57 @@ class ChatsAttended extends Component
             ])
             ->with(['assignedUser:id,name', 'channel:id,name', 'labelRelations:id,name,color'])
             ->withCount([
-                'messages as sent_messages' => function ($q) {
-                    $q->whereBetween('sent_at', [$this->dateFrom . ' 00:00:00', $this->dateTo . ' 23:59:59'])
+                'messages as sent_messages' => function ($q) use ($dates) {
+                    $q->whereBetween('sent_at', $dates)
                       ->where('direction', 'outgoing');
                 },
-                'messages as received_messages' => function ($q) {
-                    $q->whereBetween('sent_at', [$this->dateFrom . ' 00:00:00', $this->dateTo . ' 23:59:59'])
+                'messages as received_messages' => function ($q) use ($dates) {
+                    $q->whereBetween('sent_at', $dates)
                       ->where('direction', 'incoming');
                 },
             ])
-            ->withMin(['messages as first_message_at' => function ($q) {
-                $q->whereBetween('sent_at', [$this->dateFrom . ' 00:00:00', $this->dateTo . ' 23:59:59']);
+            ->withMin(['messages as first_message_at' => function ($q) use ($dates) {
+                $q->whereBetween('sent_at', $dates);
             }], 'sent_at')
-            ->when($this->userId, fn($q) => $q->where('contacts.assigned_user_id', $this->userId))
             ->when($this->channelId, fn($q) => $q->where('contacts.channel_id', $this->channelId))
-            ->whereHas('messages', function ($q) {
-                $q->whereBetween('sent_at', [$this->dateFrom . ' 00:00:00', $this->dateTo . ' 23:59:59']);
-            })
-            ->orderByDesc('first_message_at')
-            ->get();
+            ->whereHas('messages', function ($q) use ($dates) {
+                $q->whereBetween('sent_at', $dates);
+            });
+
+        if ($this->userId) {
+            $query->whereExists(function ($sub) use ($dates) {
+                $sub->select(DB::raw(1))
+                    ->from('messages as m_last')
+                    ->whereColumn('m_last.contact_id', 'contacts.id')
+                    ->where('m_last.direction', 'outgoing')
+                    ->whereNotNull('m_last.user_id')
+                    ->whereBetween('m_last.sent_at', $dates)
+                    ->when($this->channelId, fn($q) => $q->where('m_last.channel_id', $this->channelId))
+                    ->where('m_last.user_id', $this->userId)
+                    ->where('m_last.sent_at', '=', function ($inner) use ($dates) {
+                        $inner->select(DB::raw('MAX(m_inner.sent_at)'))
+                            ->from('messages as m_inner')
+                            ->whereColumn('m_inner.contact_id', 'contacts.id')
+                            ->where('m_inner.direction', 'outgoing')
+                            ->whereNotNull('m_inner.user_id')
+                            ->whereBetween('m_inner.sent_at', $dates)
+                            ->when($this->channelId, fn($q) => $q->where('m_inner.channel_id', $this->channelId));
+                    });
+            });
+        }
+
+        $contacts = $query->orderByDesc('first_message_at')->get();
+
+        // Obtener agentes principales reales
+        $primaryAgents = $this->getPrimaryAgentsByContact($contacts->pluck('id')->toArray());
+        $agentUsers = User::whereIn('id', array_values($primaryAgents))->pluck('name', 'id');
 
         $selectedUser = $this->userId ? User::find($this->userId) : null;
 
         return [
             'contacts' => $contacts,
+            'primaryAgents' => $primaryAgents,
+            'agentUsers' => $agentUsers,
             'dateFrom' => $this->dateFrom,
             'dateTo' => $this->dateTo,
             'selectedUser' => $selectedUser,
@@ -375,7 +482,9 @@ class ChatsAttended extends Component
      */
     public function exportToExcel()
     {
-        $contacts = Contact::query()
+        $dates = [$this->dateFrom . ' 00:00:00', $this->dateTo . ' 23:59:59'];
+
+        $query = Contact::query()
             ->select([
                 'contacts.id',
                 'contacts.name',
@@ -387,25 +496,50 @@ class ChatsAttended extends Component
             ])
             ->with(['assignedUser:id,name', 'channel:id,name', 'labelRelations:id,name,color'])
             ->withCount([
-                'messages as sent_messages' => function ($q) {
-                    $q->whereBetween('sent_at', [$this->dateFrom . ' 00:00:00', $this->dateTo . ' 23:59:59'])
+                'messages as sent_messages' => function ($q) use ($dates) {
+                    $q->whereBetween('sent_at', $dates)
                       ->where('direction', 'outgoing');
                 },
-                'messages as received_messages' => function ($q) {
-                    $q->whereBetween('sent_at', [$this->dateFrom . ' 00:00:00', $this->dateTo . ' 23:59:59'])
+                'messages as received_messages' => function ($q) use ($dates) {
+                    $q->whereBetween('sent_at', $dates)
                       ->where('direction', 'incoming');
                 },
             ])
-            ->withMin(['messages as first_message_at' => function ($q) {
-                $q->whereBetween('sent_at', [$this->dateFrom . ' 00:00:00', $this->dateTo . ' 23:59:59']);
+            ->withMin(['messages as first_message_at' => function ($q) use ($dates) {
+                $q->whereBetween('sent_at', $dates);
             }], 'sent_at')
-            ->when($this->userId, fn($q) => $q->where('contacts.assigned_user_id', $this->userId))
             ->when($this->channelId, fn($q) => $q->where('contacts.channel_id', $this->channelId))
-            ->whereHas('messages', function ($q) {
-                $q->whereBetween('sent_at', [$this->dateFrom . ' 00:00:00', $this->dateTo . ' 23:59:59']);
-            })
-            ->orderByDesc('first_message_at')
-            ->get();
+            ->whereHas('messages', function ($q) use ($dates) {
+                $q->whereBetween('sent_at', $dates);
+            });
+
+        if ($this->userId) {
+            $query->whereExists(function ($sub) use ($dates) {
+                $sub->select(DB::raw(1))
+                    ->from('messages as m_last')
+                    ->whereColumn('m_last.contact_id', 'contacts.id')
+                    ->where('m_last.direction', 'outgoing')
+                    ->whereNotNull('m_last.user_id')
+                    ->whereBetween('m_last.sent_at', $dates)
+                    ->when($this->channelId, fn($q) => $q->where('m_last.channel_id', $this->channelId))
+                    ->where('m_last.user_id', $this->userId)
+                    ->where('m_last.sent_at', '=', function ($inner) use ($dates) {
+                        $inner->select(DB::raw('MAX(m_inner.sent_at)'))
+                            ->from('messages as m_inner')
+                            ->whereColumn('m_inner.contact_id', 'contacts.id')
+                            ->where('m_inner.direction', 'outgoing')
+                            ->whereNotNull('m_inner.user_id')
+                            ->whereBetween('m_inner.sent_at', $dates)
+                            ->when($this->channelId, fn($q) => $q->where('m_inner.channel_id', $this->channelId));
+                    });
+            });
+        }
+
+        $contacts = $query->orderByDesc('first_message_at')->get();
+
+        // Obtener agentes principales reales (último mensaje saliente)
+        $primaryAgents = $this->getPrimaryAgentsByContact($contacts->pluck('id')->toArray());
+        $agentUsers = User::whereIn('id', array_values($primaryAgents))->pluck('name', 'id');
 
         $spreadsheet = new Spreadsheet();
         $sheet = $spreadsheet->getActiveSheet();
@@ -469,7 +603,9 @@ class ChatsAttended extends Component
             $firstMessage = $contact->first_message_at
                 ? Carbon::parse($contact->first_message_at)->format('d/m/Y H:i')
                 : '-';
-            $agent = $contact->assignedUser?->name ?: 'Sin asignar';
+            $agent = isset($primaryAgents[$contact->id])
+                ? ($agentUsers->get($primaryAgents[$contact->id]) ?? 'Sin asignar')
+                : 'Sin asignar';
             $conversations = ($contact->sent_messages > 0 && $contact->received_messages > 0) ? 1 : 0;
 
             $sheet->setCellValue('A' . $row, $name);
@@ -629,6 +765,16 @@ class ChatsAttended extends Component
 
     public function render()
     {
-        return view('livewire.reports.chats-attended');
+        // Calcular agentes principales reales para la tabla paginada
+        $contactsTable = $this->contactsTable;
+        $primaryAgents = $this->getPrimaryAgentsByContact(
+            $contactsTable->pluck('id')->toArray()
+        );
+        $agentUsers = User::whereIn('id', array_values($primaryAgents))->pluck('name', 'id');
+
+        return view('livewire.reports.chats-attended', [
+            'primaryAgents' => $primaryAgents,
+            'agentUsers' => $agentUsers,
+        ]);
     }
 }
