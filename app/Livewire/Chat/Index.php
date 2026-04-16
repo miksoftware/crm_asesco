@@ -90,6 +90,10 @@ class Index extends Component
     public bool $showLidModal = false;
     public string $lidRealNumber = '';
 
+    // Inline contact name edit
+    public bool $editingContactName = false;
+    public string $editContactName = '';
+
     // Permission flags
     public bool $canSend = false;
     public bool $canManageLabels = false;
@@ -454,11 +458,44 @@ class Index extends Component
     public function selectConversation(int $contactId): void
     {
         $this->selectedContactId = $contactId;
+        $this->editingContactName = false;
         $this->resetMessages();
         $this->markAsRead($contactId);
 
         // Notificar al frontend para suscribirse a la conversación via WebSocket
         $this->dispatch('contact-changed', contactId: $contactId);
+    }
+
+    public function startEditingContactName(): void
+    {
+        $contact = $this->selectedContact;
+        if (!$contact) return;
+
+        $this->editContactName = $contact->name ?? $contact->push_name ?? '';
+        $this->editingContactName = true;
+    }
+
+    public function saveContactName(): void
+    {
+        $contact = Contact::find($this->selectedContactId);
+        if (!$contact) return;
+
+        $name = trim($this->editContactName);
+        $contact->update([
+            'name' => $name !== '' ? $name : null,
+        ]);
+
+        $this->editingContactName = false;
+        unset($this->selectedContact);
+        unset($this->conversations);
+
+        $this->dispatch('contact-updated');
+        $this->dispatch('toast', type: 'success', message: 'Nombre actualizado');
+    }
+
+    public function cancelEditingContactName(): void
+    {
+        $this->editingContactName = false;
     }
 
     public function sendMessage(): void

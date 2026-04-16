@@ -261,8 +261,37 @@
                                 <span class="text-lg font-semibold text-gray-500">{{ strtoupper(substr($this->selectedContact->display_name, 0, 1)) }}</span>
                             @endif
                         </div>
-                        <div class="flex-1">
-                            <h3 class="font-semibold text-gray-900">{{ $this->selectedContact->display_name }}</h3>
+                        <div class="flex-1 min-w-0">
+                            @if($editingContactName)
+                                <form wire:submit="saveContactName" class="flex items-center gap-2">
+                                    <input type="text" wire:model="editContactName" 
+                                           class="flex-1 min-w-0 px-2 py-1 text-sm font-semibold border border-green-400 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                                           placeholder="Nombre del contacto"
+                                           autofocus
+                                           @keydown.escape="$wire.cancelEditingContactName()">
+                                    <button type="submit" class="p-1 text-green-600 hover:bg-green-100 rounded-full" title="Guardar">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                                        </svg>
+                                    </button>
+                                    <button type="button" wire:click="cancelEditingContactName" class="p-1 text-gray-400 hover:bg-gray-100 rounded-full" title="Cancelar">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                                        </svg>
+                                    </button>
+                                </form>
+                            @else
+                                <div class="flex items-center gap-1.5 group/name">
+                                    <h3 class="font-semibold text-gray-900">{{ $this->selectedContact->display_name }}</h3>
+                                    <button wire:click="startEditingContactName" 
+                                            class="p-1 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-full opacity-0 group-hover/name:opacity-100 transition-opacity"
+                                            title="Editar nombre">
+                                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/>
+                                        </svg>
+                                    </button>
+                                </div>
+                            @endif
                             <p class="text-xs text-gray-500">
                                 @if($this->selectedContact->is_group)
                                     Grupo
