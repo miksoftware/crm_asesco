@@ -861,6 +861,10 @@ class Index extends Component
                 'assigned_user_id' => $this->transferToUserId,
                 'channel_id' => $this->transferToChannelId,
             ]);
+
+            // Update all messages to the new channel so they appear in the conversation
+            Message::where('contact_id', $contact->id)
+                ->update(['channel_id' => $this->transferToChannelId]);
         }
 
         $this->closeTransferModal();
