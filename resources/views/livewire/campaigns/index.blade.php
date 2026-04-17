@@ -7,13 +7,22 @@
         </div>
         
         @if($canCreate)
-        <a href="{{ route('campaigns.create') }}" 
-           class="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-orange-500 to-pink-500 text-white rounded-lg hover:from-orange-600 hover:to-pink-600 transition-all shadow-md">
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
-            </svg>
-            Nueva Campaña
-        </a>
+        <div class="flex items-center gap-2">
+            <a href="{{ route('campaigns.create') }}" 
+               class="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-orange-500 to-pink-500 text-white rounded-lg hover:from-orange-600 hover:to-pink-600 transition-all shadow-md">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+                </svg>
+                Nueva Campaña
+            </a>
+            <button wire:click="openExcelModal"
+                    class="inline-flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-all shadow-md">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                </svg>
+                Campaña Excel
+            </button>
+        </div>
         @endif
     </div>
 
@@ -232,4 +241,204 @@
         </div>
         @endif
     </div>
+
+    {{-- Modal Campaña Excel --}}
+    @if($showExcelModal)
+    @teleport('body')
+    <div class="fixed inset-0 z-50 flex items-center justify-center p-4" x-data x-trap.noscroll="true">
+        {{-- Backdrop --}}
+        <div class="absolute inset-0 bg-black/30 backdrop-blur-sm" wire:click="closeExcelModal"></div>
+        
+        {{-- Modal --}}
+        <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            {{-- Header --}}
+            <div class="flex items-center justify-between p-6 border-b border-gray-200">
+                <div>
+                    <h2 class="text-xl font-bold text-gray-900">Nueva Campaña desde Excel</h2>
+                    <p class="text-sm text-gray-500 mt-1">Sube un archivo Excel con los destinatarios</p>
+                </div>
+                <button wire:click="closeExcelModal" class="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </button>
+            </div>
+
+            {{-- Body --}}
+            <div class="p-6 space-y-5">
+                {{-- Descargar plantilla --}}
+                <div class="p-4 bg-green-50 border border-green-200 rounded-lg">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-3">
+                            <svg class="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                            </svg>
+                            <div>
+                                <p class="font-medium text-green-800">Plantilla Excel</p>
+                                <p class="text-sm text-green-600">Descarga la plantilla con las columnas requeridas</p>
+                            </div>
+                        </div>
+                        <button wire:click="downloadExcelTemplate"
+                                class="inline-flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                            </svg>
+                            Descargar
+                        </button>
+                    </div>
+                </div>
+
+                {{-- Nombre de campaña --}}
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Nombre de la campaña *</label>
+                    <input type="text" 
+                           wire:model="excelCampaignName"
+                           placeholder="Ej: Recordatorio de pago - Abril 2026"
+                           class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500">
+                    @error('excelCampaignName') <p class="mt-1 text-sm text-red-600">{{ $message }}</p> @enderror
+                </div>
+
+                {{-- Canal --}}
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Canal de WhatsApp *</label>
+                    <select wire:model="excelChannelId"
+                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500">
+                        <option value="">Seleccionar canal...</option>
+                        @foreach($this->availableChannels as $channel)
+                        <option value="{{ $channel->id }}">{{ $channel->name }}</option>
+                        @endforeach
+                    </select>
+                    @error('excelChannelId') <p class="mt-1 text-sm text-red-600">{{ $message }}</p> @enderror
+                </div>
+
+                {{-- Mensaje --}}
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Mensaje *</label>
+                    <textarea wire:model="excelMessage"
+                              rows="4"
+                              placeholder="Escribe tu mensaje aquí..."
+                              class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500"></textarea>
+                    @error('excelMessage') <p class="mt-1 text-sm text-red-600">{{ $message }}</p> @enderror
+                    <div class="mt-2 p-3 bg-blue-50 rounded-lg">
+                        <p class="text-xs text-blue-700">
+                            Variables: <code class="bg-blue-100 px-1 rounded">{nombre}</code> 
+                            <code class="bg-blue-100 px-1 rounded">{val1}</code> 
+                            <code class="bg-blue-100 px-1 rounded">{val2}</code>
+                        </p>
+                    </div>
+                </div>
+
+                {{-- Subir archivo --}}
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Archivo Excel *</label>
+                    <div x-data="{ isDragging: false }"
+                         class="border-2 border-dashed rounded-lg p-6 text-center transition-colors"
+                         :class="isDragging ? 'border-green-500 bg-green-50' : 'border-gray-300 hover:border-gray-400'"
+                         x-on:dragover.prevent="isDragging = true"
+                         x-on:dragleave.prevent="isDragging = false"
+                         x-on:drop.prevent="
+                             isDragging = false;
+                             const file = $event.dataTransfer.files[0];
+                             if (file && (file.name.endsWith('.xlsx') || file.name.endsWith('.xls'))) {
+                                 $refs.excelInput.files = $event.dataTransfer.files;
+                                 $refs.excelInput.dispatchEvent(new Event('change', { bubbles: true }));
+                             }
+                         ">
+                        <input type="file" 
+                               wire:model="excelFile"
+                               accept=".xlsx,.xls"
+                               class="hidden"
+                               id="excelUpload"
+                               x-ref="excelInput">
+                        <label for="excelUpload" class="cursor-pointer">
+                            <svg class="mx-auto h-10 w-10" :class="isDragging ? 'text-green-500' : 'text-gray-400'" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+                            </svg>
+                            <p class="mt-2 text-sm" :class="isDragging ? 'text-green-600' : 'text-gray-600'">
+                                <span x-show="!isDragging">Arrastra un archivo Excel o haz clic para seleccionar</span>
+                                <span x-show="isDragging">Suelta el archivo aquí</span>
+                            </p>
+                            <p class="mt-1 text-xs text-gray-500">Formatos: .xlsx, .xls (máx. 5MB)</p>
+                        </label>
+                    </div>
+                    @error('excelFile') <p class="mt-1 text-sm text-red-600">{{ $message }}</p> @enderror
+
+                    {{-- Loading --}}
+                    <div wire:loading wire:target="excelFile" class="mt-2 flex items-center gap-2 text-sm text-orange-600">
+                        <svg class="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        Procesando archivo...
+                    </div>
+                </div>
+
+                {{-- Preview --}}
+                @if($excelTotalRows > 0)
+                <div>
+                    <div class="flex items-center justify-between mb-2">
+                        <label class="text-sm font-medium text-gray-700">
+                            Vista previa ({{ $excelTotalRows }} destinatarios)
+                        </label>
+                    </div>
+                    <div class="border border-gray-200 rounded-lg overflow-hidden">
+                        <table class="w-full text-sm">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Teléfono</th>
+                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Nombre</th>
+                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Val1</th>
+                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Val2</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-100">
+                                @foreach($excelPreview as $row)
+                                <tr class="hover:bg-gray-50">
+                                    <td class="px-4 py-2 font-mono">{{ $row['phone_number'] }}</td>
+                                    <td class="px-4 py-2">{{ $row['name'] ?? '-' }}</td>
+                                    <td class="px-4 py-2">{{ $row['val1'] ?? '-' }}</td>
+                                    <td class="px-4 py-2">{{ $row['val2'] ?? '-' }}</td>
+                                </tr>
+                                @endforeach
+                            </tbody>
+                        </table>
+                        @if($excelTotalRows > 5)
+                        <p class="px-4 py-2 text-xs text-gray-500 bg-gray-50">
+                            Mostrando 5 de {{ $excelTotalRows }} destinatarios
+                        </p>
+                        @endif
+                    </div>
+                </div>
+                @endif
+            </div>
+
+            {{-- Footer --}}
+            <div class="flex items-center justify-end gap-3 p-6 border-t border-gray-200">
+                <button wire:click="closeExcelModal"
+                        class="px-4 py-2 text-gray-700 hover:text-gray-900 transition-colors">
+                    Cancelar
+                </button>
+                <button wire:click="processExcelCampaign"
+                        wire:loading.attr="disabled"
+                        @if($excelTotalRows === 0) disabled @endif
+                        class="px-6 py-2 bg-gradient-to-r from-orange-500 to-pink-500 text-white rounded-lg hover:from-orange-600 hover:to-pink-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+                    <span wire:loading.remove wire:target="processExcelCampaign">
+                        <svg class="inline w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+                        </svg>
+                        Procesar e Iniciar
+                    </span>
+                    <span wire:loading wire:target="processExcelCampaign" class="inline-flex items-center gap-2">
+                        <svg class="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        Procesando...
+                    </span>
+                </button>
+            </div>
+        </div>
+    </div>
+    @endteleport
+    @endif
 </div>

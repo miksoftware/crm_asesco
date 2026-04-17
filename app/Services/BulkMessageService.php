@@ -299,6 +299,85 @@ class BulkMessageService
     }
 
     /**
+     * Parsea un archivo Excel (.xlsx/.xls) y retorna los destinatarios.
+     */
+    public function parseExcelFile(string $filePath): array
+    {
+        $recipients = [];
+
+        if (!file_exists($filePath)) {
+            return [];
+        }
+
+        $spreadsheet = \PhpOffice\PhpSpreadsheet\IOFactory::load($filePath);
+        $sheet = $spreadsheet->getActiveSheet();
+        $rows = $sheet->toArray(null, true, true, false);
+
+        if (empty($rows)) {
+            return [];
+        }
+
+        // Primera fila como header
+        $header = array_map(function ($h) {
+            return strtolower(trim(preg_replace('/[\x00-\x1F\x7F-\xFF]/', '', (string) ($h ?? ''))));
+        }, array_shift($rows));
+
+        if (empty($header) || (count($header) === 1 && empty($header[0]))) {
+            return [];
+        }
+
+        foreach ($rows as $row) {
+            if (empty($row) || (count($row) === 1 && empty(trim((string) ($row[0] ?? ''))))) continue;
+
+            // Ajustar tamaño al header
+            if (count($row) > count($header)) {
+                $row = array_slice($row, 0, count($header));
+            } elseif (count($row) < count($header)) {
+                $row = array_pad($row, count($header), '');
+            }
+
+            $data = array_combine($header, $row);
+
+            // Buscar columna de teléfono
+            $phone = $data['telefono'] ?? $data['phone'] ?? $data['numero'] ?? $data['celular'] ?? $data['teléfono'] ?? $data['télefono'] ?? null;
+            if (!$phone) {
+                foreach ($data as $k => $v) {
+                    if (str_contains($k, 'tel') || str_contains($k, 'cel') || str_contains($k, 'num') || str_contains($k, 'phone')) {
+                        $phone = $v;
+                        break;
+                    }
+                }
+            }
+
+            if (!$phone) continue;
+
+            // Limpiar teléfono (puede venir como float desde Excel)
+            $phone = preg_replace('/[^0-9]/', '', (string) intval($phone));
+            if (strlen($phone) < 10) continue;
+
+            // Buscar nombre
+            $name = $data['nombre'] ?? $data['name'] ?? null;
+            if (!$name) {
+                foreach ($data as $k => $v) {
+                    if (str_contains($k, 'nom') || str_contains($k, 'name')) {
+                        $name = $v;
+                        break;
+                    }
+                }
+            }
+
+            $recipients[] = [
+                'phone_number' => trim($phone),
+                'name' => $name ? trim((string) $name) : null,
+                'val1' => isset($data['val1']) ? trim((string) $data['val1']) : (isset($data['variable1']) ? trim((string) $data['variable1']) : (isset($data['variable 1']) ? trim((string) $data['variable 1']) : null)),
+                'val2' => isset($data['val2']) ? trim((string) $data['val2']) : (isset($data['variable2']) ? trim((string) $data['variable2']) : (isset($data['variable 2']) ? trim((string) $data['variable 2']) : null)),
+            ];
+        }
+
+        return $recipients;
+    }
+
+    /**
      * Parsea un archivo CSV y retorna los destinatarios.
      */
     public function parseCsvFile(string $filePath): array
