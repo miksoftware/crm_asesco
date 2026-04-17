@@ -255,7 +255,7 @@
             <div class="flex items-center justify-between p-6 border-b border-gray-200">
                 <div>
                     <h2 class="text-xl font-bold text-gray-900">Nueva Campaña desde Excel</h2>
-                    <p class="text-sm text-gray-500 mt-1">Sube un archivo Excel con los destinatarios</p>
+                    <p class="text-sm text-gray-500 mt-1">Cada fila del Excel tiene su propio teléfono y mensaje</p>
                 </div>
                 <button wire:click="closeExcelModal" class="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -275,7 +275,7 @@
                             </svg>
                             <div>
                                 <p class="font-medium text-green-800">Plantilla Excel</p>
-                                <p class="text-sm text-green-600">Descarga la plantilla con las columnas requeridas</p>
+                                <p class="text-sm text-green-600">Columnas: Teléfono y Mensaje</p>
                             </div>
                         </div>
                         <button wire:click="downloadExcelTemplate"
@@ -309,23 +309,6 @@
                         @endforeach
                     </select>
                     @error('excelChannelId') <p class="mt-1 text-sm text-red-600">{{ $message }}</p> @enderror
-                </div>
-
-                {{-- Mensaje --}}
-                <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-2">Mensaje *</label>
-                    <textarea wire:model="excelMessage"
-                              rows="4"
-                              placeholder="Escribe tu mensaje aquí..."
-                              class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500"></textarea>
-                    @error('excelMessage') <p class="mt-1 text-sm text-red-600">{{ $message }}</p> @enderror
-                    <div class="mt-2 p-3 bg-blue-50 rounded-lg">
-                        <p class="text-xs text-blue-700">
-                            Variables: <code class="bg-blue-100 px-1 rounded">{nombre}</code> 
-                            <code class="bg-blue-100 px-1 rounded">{val1}</code> 
-                            <code class="bg-blue-100 px-1 rounded">{val2}</code>
-                        </p>
-                    </div>
                 </div>
 
                 {{-- Subir archivo --}}
@@ -385,19 +368,15 @@
                         <table class="w-full text-sm">
                             <thead class="bg-gray-50">
                                 <tr>
-                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Teléfono</th>
-                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Nombre</th>
-                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Val1</th>
-                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Val2</th>
+                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 w-36">Teléfono</th>
+                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Mensaje</th>
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-gray-100">
                                 @foreach($excelPreview as $row)
                                 <tr class="hover:bg-gray-50">
-                                    <td class="px-4 py-2 font-mono">{{ $row['phone_number'] }}</td>
-                                    <td class="px-4 py-2">{{ $row['name'] ?? '-' }}</td>
-                                    <td class="px-4 py-2">{{ $row['val1'] ?? '-' }}</td>
-                                    <td class="px-4 py-2">{{ $row['val2'] ?? '-' }}</td>
+                                    <td class="px-4 py-2 font-mono whitespace-nowrap">{{ $row['phone_number'] }}</td>
+                                    <td class="px-4 py-2 text-gray-700">{{ Str::limit($row['message_content'] ?? '-', 80) }}</td>
                                 </tr>
                                 @endforeach
                             </tbody>

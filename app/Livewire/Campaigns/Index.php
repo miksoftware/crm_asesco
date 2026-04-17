@@ -47,7 +47,6 @@ class Index extends Component
     public $excelFile = null;
     public ?int $excelChannelId = null;
     public string $excelCampaignName = '';
-    public string $excelMessage = '';
     public array $excelPreview = [];
     public int $excelTotalRows = 0;
     public bool $excelProcessing = false;
@@ -220,7 +219,6 @@ class Index extends Component
         $this->excelFile = null;
         $this->excelChannelId = null;
         $this->excelCampaignName = '';
-        $this->excelMessage = '';
         $this->excelPreview = [];
         $this->excelTotalRows = 0;
         $this->excelProcessing = false;
@@ -234,8 +232,7 @@ class Index extends Component
         $sheet->setTitle('Destinatarios');
 
         // Headers
-        $headers = ['telefono', 'nombre', 'val1', 'val2'];
-        $headerLabels = ['Teléfono *', 'Nombre', 'Variable 1', 'Variable 2'];
+        $headerLabels = ['Teléfono *', 'Mensaje *'];
 
         foreach ($headerLabels as $col => $label) {
             $cell = chr(65 + $col) . '1';
@@ -249,13 +246,13 @@ class Index extends Component
             'alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER],
             'borders' => ['allBorders' => ['borderStyle' => Border::BORDER_THIN]],
         ];
-        $sheet->getStyle('A1:D1')->applyFromArray($headerStyle);
+        $sheet->getStyle('A1:B1')->applyFromArray($headerStyle);
 
         // Ejemplo de datos
         $examples = [
-            ['3001234567', 'Juan Pérez', '$150.000', '15/02/2026'],
-            ['3109876543', 'María López', '$200.000', '20/02/2026'],
-            ['3201112233', 'Carlos García', '$75.000', '28/02/2026'],
+            ['3001234567', 'Hola Juan, le recordamos que su pago de $150.000 vence el 15/02/2026'],
+            ['3109876543', 'Hola María, su cuota de $200.000 está pendiente. Contáctenos.'],
+            ['3201112233', 'Estimado Carlos, tiene un saldo de $75.000 por pagar.'],
         ];
 
         foreach ($examples as $row => $data) {
@@ -265,24 +262,23 @@ class Index extends Component
         }
 
         // Estilo de ejemplos (gris claro)
-        $sheet->getStyle('A2:D4')->applyFromArray([
+        $sheet->getStyle('A2:B4')->applyFromArray([
             'font' => ['color' => ['rgb' => '9CA3AF'], 'italic' => true],
             'borders' => ['allBorders' => ['borderStyle' => Border::BORDER_THIN, 'color' => ['rgb' => 'E5E7EB']]],
         ]);
 
         // Ancho de columnas
         $sheet->getColumnDimension('A')->setWidth(18);
-        $sheet->getColumnDimension('B')->setWidth(25);
-        $sheet->getColumnDimension('C')->setWidth(20);
-        $sheet->getColumnDimension('D')->setWidth(20);
+        $sheet->getColumnDimension('B')->setWidth(65);
 
         // Nota en fila 6
         $sheet->setCellValue('A6', 'INSTRUCCIONES:');
-        $sheet->setCellValue('A7', '- La columna Teléfono es obligatoria (10 dígitos sin código de país, o con código 57)');
-        $sheet->setCellValue('A8', '- Elimine las filas de ejemplo antes de agregar sus datos');
-        $sheet->setCellValue('A9', '- Use {nombre}, {val1}, {val2} como variables en el mensaje de la campaña');
+        $sheet->setCellValue('A7', '- Ambas columnas son obligatorias');
+        $sheet->setCellValue('A8', '- Teléfono: 10 dígitos sin código de país, o con código 57');
+        $sheet->setCellValue('A9', '- Cada fila puede tener un mensaje diferente');
+        $sheet->setCellValue('A10', '- Elimine las filas de ejemplo antes de agregar sus datos');
         $sheet->getStyle('A6')->getFont()->setBold(true)->setColor(new \PhpOffice\PhpSpreadsheet\Style\Color('FF6B21'));
-        $sheet->getStyle('A7:A9')->getFont()->setSize(10)->setColor(new \PhpOffice\PhpSpreadsheet\Style\Color('6B7280'));
+        $sheet->getStyle('A7:A10')->getFont()->setSize(10)->setColor(new \PhpOffice\PhpSpreadsheet\Style\Color('6B7280'));
 
         $writer = new Xlsx($spreadsheet);
 
@@ -329,13 +325,11 @@ class Index extends Component
         $this->validate([
             'excelCampaignName' => 'required|min:3|max:100',
             'excelChannelId' => 'required|exists:channels,id',
-            'excelMessage' => 'required|min:1|max:4096',
             'excelFile' => 'required',
         ], [
             'excelCampaignName.required' => 'El nombre de la campaña es requerido',
             'excelCampaignName.min' => 'El nombre debe tener al menos 3 caracteres',
             'excelChannelId.required' => 'Selecciona un canal',
-            'excelMessage.required' => 'El mensaje es requerido',
             'excelFile.required' => 'Sube un archivo Excel',
         ]);
 
@@ -350,12 +344,12 @@ class Index extends Component
             $bulkService = app(BulkMessageService::class);
             $recipients = $bulkService->parseExcelFile($this->excelFile->getRealPath());
 
-            // Crear campaña con valores anti-ban por defecto
+            // Crear campaña — message_content es referencial ya que cada recipient tiene su propio mensaje
             $campaign = Campaign::create([
                 'name' => $this->excelCampaignName,
                 'channel_id' => $this->excelChannelId,
                 'user_id' => auth()->id(),
-                'message_content' => $this->excelMessage,
+                'message_content' => '[Mensajes individuales desde Excel]',
                 'status' => 'pending',
                 'total_recipients' => count($recipients),
                 'pending_count' => count($recipients),
@@ -365,7 +359,7 @@ class Index extends Component
                 'batch_pause' => 300,
             ]);
 
-            // Crear destinatarios en lotes
+            // Crear destinatarios en lotes con su mensaje individual
             $chunks = array_chunk($recipients, 500);
             foreach ($chunks as $chunk) {
                 $rows = [];
@@ -373,9 +367,10 @@ class Index extends Component
                     $rows[] = [
                         'campaign_id' => $campaign->id,
                         'phone_number' => $r['phone_number'],
-                        'name' => $r['name'] ?? null,
-                        'val1' => $r['val1'] ?? null,
-                        'val2' => $r['val2'] ?? null,
+                        'name' => null,
+                        'val1' => null,
+                        'val2' => null,
+                        'message_content' => $r['message_content'],
                         'status' => 'pending',
                         'created_at' => now(),
                         'updated_at' => now(),

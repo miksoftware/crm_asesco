@@ -31,12 +31,16 @@ class BulkMessageService
             return false;
         }
 
-        // Preparar el mensaje con los placeholders
-        $message = $this->renderMessage($campaign->message_content, [
-            'nombre' => $recipient->name ?? '',
-            'val1' => $recipient->val1 ?? '',
-            'val2' => $recipient->val2 ?? '',
-        ]);
+        // Preparar el mensaje: usar el del recipient si tiene uno propio, sino el de la campaña con placeholders
+        if (!empty($recipient->message_content)) {
+            $message = $recipient->message_content;
+        } else {
+            $message = $this->renderMessage($campaign->message_content, [
+                'nombre' => $recipient->name ?? '',
+                'val1' => $recipient->val1 ?? '',
+                'val2' => $recipient->val2 ?? '',
+            ]);
+        }
 
         try {
             // Normalizar número de teléfono
@@ -299,7 +303,8 @@ class BulkMessageService
     }
 
     /**
-     * Parsea un archivo Excel (.xlsx/.xls) y retorna los destinatarios.
+     * Parsea un archivo Excel (.xlsx/.xls) para campaña Excel.
+     * Solo lee teléfono y mensaje por fila.
      */
     public function parseExcelFile(string $filePath): array
     {
@@ -339,7 +344,7 @@ class BulkMessageService
             $data = array_combine($header, $row);
 
             // Buscar columna de teléfono
-            $phone = $data['telefono'] ?? $data['phone'] ?? $data['numero'] ?? $data['celular'] ?? $data['teléfono'] ?? $data['télefono'] ?? null;
+            $phone = $data['telefono'] ?? $data['phone'] ?? $data['numero'] ?? $data['celular'] ?? $data['teléfono'] ?? null;
             if (!$phone) {
                 foreach ($data as $k => $v) {
                     if (str_contains($k, 'tel') || str_contains($k, 'cel') || str_contains($k, 'num') || str_contains($k, 'phone')) {
@@ -355,22 +360,22 @@ class BulkMessageService
             $phone = preg_replace('/[^0-9]/', '', (string) intval($phone));
             if (strlen($phone) < 10) continue;
 
-            // Buscar nombre
-            $name = $data['nombre'] ?? $data['name'] ?? null;
-            if (!$name) {
+            // Buscar columna de mensaje
+            $msg = $data['mensaje'] ?? $data['message'] ?? $data['texto'] ?? $data['msg'] ?? null;
+            if (!$msg) {
                 foreach ($data as $k => $v) {
-                    if (str_contains($k, 'nom') || str_contains($k, 'name')) {
-                        $name = $v;
+                    if (str_contains($k, 'mensaj') || str_contains($k, 'messag') || str_contains($k, 'texto') || str_contains($k, 'msg')) {
+                        $msg = $v;
                         break;
                     }
                 }
             }
 
+            if (!$msg || empty(trim((string) $msg))) continue;
+
             $recipients[] = [
                 'phone_number' => trim($phone),
-                'name' => $name ? trim((string) $name) : null,
-                'val1' => isset($data['val1']) ? trim((string) $data['val1']) : (isset($data['variable1']) ? trim((string) $data['variable1']) : (isset($data['variable 1']) ? trim((string) $data['variable 1']) : null)),
-                'val2' => isset($data['val2']) ? trim((string) $data['val2']) : (isset($data['variable2']) ? trim((string) $data['variable2']) : (isset($data['variable 2']) ? trim((string) $data['variable 2']) : null)),
+                'message_content' => trim((string) $msg),
             ];
         }
 

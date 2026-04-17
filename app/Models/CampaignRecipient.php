@@ -16,6 +16,7 @@ class CampaignRecipient extends Model
         'name',
         'val1',
         'val2',
+        'message_content',
         'status',
         'error_message',
         'message_id',
