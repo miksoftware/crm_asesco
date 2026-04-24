@@ -384,17 +384,32 @@ class EvolutionApiService
      */
     public function getMediaBase64(string $instanceName, string $messageId, string $remoteJid): array
     {
-        // Evolution API v2: only message.key.id is required
+        // Evolution API v2: intentar con key.id + key.remoteJid (más confiable)
         $response = $this->request()
             ->timeout(60)
             ->post("/chat/getBase64FromMediaMessage/{$instanceName}", [
                 'message' => [
                     'key' => [
                         'id' => $messageId,
+                        'remoteJid' => $remoteJid,
                     ],
                 ],
                 'convertToMp4' => false,
             ]);
+
+        // Si falla, intentar solo con key.id (algunas versiones lo aceptan así)
+        if (!$response->successful()) {
+            $response = $this->request()
+                ->timeout(60)
+                ->post("/chat/getBase64FromMediaMessage/{$instanceName}", [
+                    'message' => [
+                        'key' => [
+                            'id' => $messageId,
+                        ],
+                    ],
+                    'convertToMp4' => false,
+                ]);
+        }
 
         return $this->handleResponse($response);
     }
@@ -476,9 +491,21 @@ class EvolutionApiService
             ];
         }
 
+        // Intentar extraer mensaje de error de diferentes formatos de respuesta
+        $body = $response->json();
+        $errorMessage = $body['message'] 
+            ?? $body['error'] 
+            ?? $body['response']['message'] 
+            ?? $response->body();
+
+        // Si el error es un array, convertirlo a string
+        if (is_array($errorMessage)) {
+            $errorMessage = json_encode($errorMessage);
+        }
+
         return [
             'success' => false,
-            'error' => $response->json('message') ?? $response->body(),
+            'error' => $errorMessage,
             'status' => $response->status(),
         ];
     }

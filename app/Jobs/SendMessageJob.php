@@ -24,8 +24,9 @@ class SendMessageJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public int $tries = 2;
-    public int $timeout = 30;
+    public int $tries = 3;
+    public int $timeout = 45;
+    public array $backoff = [3, 10];
 
     public function __construct(
         private int $messageId,
@@ -89,6 +90,7 @@ class SendMessageJob implements ShouldQueue
                 }
             } else {
                 $errorMsg = $response['error'] ?? 'Unknown Evolution API error';
+                $statusCode = $response['status'] ?? 0;
                 $message->update(['status' => 'failed']);
 
                 // Emitir estado fallido al frontend
@@ -106,14 +108,27 @@ class SendMessageJob implements ShouldQueue
 
                 Log::error('SendMessageJob: Evolution API failed', [
                     'message_id' => $this->messageId,
+                    'instance' => $this->instanceName,
                     'recipient' => $this->recipient,
+                    'type' => $this->type,
+                    'status_code' => $statusCode,
                     'error' => $errorMsg,
+                    'attempt' => $this->attempts(),
                 ]);
+
+                // Si es un error de servidor (5xx) o timeout, reintentar
+                if ($statusCode >= 500 || $statusCode === 0) {
+                    throw new \RuntimeException('Evolution API server error: ' . $errorMsg);
+                }
             }
         } catch (\Exception $e) {
             $message->update(['status' => 'failed']);
             Log::error('SendMessageJob: Exception', [
                 'message_id' => $this->messageId,
+                'instance' => $this->instanceName,
+                'recipient' => $this->recipient,
+                'type' => $this->type,
+                'attempt' => $this->attempts(),
                 'exception' => $e->getMessage(),
             ]);
             
@@ -131,6 +146,9 @@ class SendMessageJob implements ShouldQueue
 
         Log::error('SendMessageJob: All retries failed', [
             'message_id' => $this->messageId,
+            'instance' => $this->instanceName,
+            'recipient' => $this->recipient,
+            'type' => $this->type,
             'exception' => $exception->getMessage(),
         ]);
     }

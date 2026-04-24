@@ -307,7 +307,34 @@ class MessageService
         // For media messages, check for inline base64 first (instant), otherwise dispatch background job
         $shouldDispatchMediaJob = false;
         if (in_array($messageType, ['image', 'video', 'audio', 'document', 'sticker']) && $messageId) {
+            // Evolution API v2 puede enviar el base64 en diferentes ubicaciones:
+            // 1. $data['message']['base64'] — nivel raíz del message
+            // 2. $data['message']['imageMessage']['base64'] — dentro del tipo específico
+            // 3. $data['message']['base64'] después de normalizar viewOnce
             $inlineBase64 = $data['message']['base64'] ?? null;
+            
+            // Buscar en el tipo específico si no está en la raíz
+            if (!$inlineBase64) {
+                $typeKey = match ($messageType) {
+                    'image' => 'imageMessage',
+                    'video' => 'videoMessage',
+                    'audio' => 'audioMessage',
+                    'document' => 'documentMessage',
+                    'sticker' => 'stickerMessage',
+                    default => null,
+                };
+                if ($typeKey) {
+                    $inlineBase64 = $data['message'][$typeKey]['base64'] ?? null;
+                }
+                // También buscar en documentWithCaptionMessage
+                if (!$inlineBase64 && $messageType === 'document') {
+                    $inlineBase64 = $data['message']['documentWithCaptionMessage']['message']['documentMessage']['base64'] ?? null;
+                }
+                // Buscar en pttMessage para audios PTT
+                if (!$inlineBase64 && $messageType === 'audio') {
+                    $inlineBase64 = $data['message']['pttMessage']['base64'] ?? null;
+                }
+            }
             
             if ($inlineBase64) {
                 // Inline base64 available - save immediately (fast, no HTTP call)
