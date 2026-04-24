@@ -633,8 +633,16 @@ class MessageService
                 return 'deleted';
             }
         }
+        // Llamadas de WhatsApp
+        if (isset($messageData['bcallMessage']) || isset($messageData['callMessage'])) {
+            return 'call';
+        }
         // viewOnceMessage is handled by normalizeMessageData() before this method is called
         if (isset($messageData['pollCreationMessage']) || isset($messageData['pollCreationMessageV3'])) {
+            return 'text';
+        }
+        // Encuestas (respuestas)
+        if (isset($messageData['pollUpdateMessage'])) {
             return 'text';
         }
         
@@ -671,6 +679,7 @@ class MessageService
                 ?? '[Ubicación]',
             'sticker' => '[Sticker]',
             'deleted' => '[Mensaje eliminado]',
+            'call' => '📞 Llamada',
             'other' => '[Mensaje no soportado]',
             default => null,
         };
