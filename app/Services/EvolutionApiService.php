@@ -530,10 +530,25 @@ class EvolutionApiService
 
         // Intentar extraer mensaje de error de diferentes formatos de respuesta
         $body = $response->json();
-        $errorMessage = $body['message'] 
-            ?? $body['error'] 
-            ?? $body['response']['message'] 
-            ?? $response->body();
+        $errorMessage = null;
+
+        // Detectar error de número no existente en WhatsApp
+        if (is_array($body['response']['message'] ?? null)) {
+            $firstMsg = $body['response']['message'][0] ?? null;
+            if (is_array($firstMsg) && isset($firstMsg['exists']) && $firstMsg['exists'] === false) {
+                $number = $firstMsg['number'] ?? '';
+                // Limpiar @s.whatsapp.net del número si viene
+                $number = explode('@', $number)[0];
+                $errorMessage = "No se pudo enviar al número {$number}. Es posible que no tenga WhatsApp, haya desactivado su cuenta o te haya bloqueado.";
+            }
+        }
+
+        if (!$errorMessage) {
+            $errorMessage = $body['message']
+                ?? $body['error']
+                ?? $body['response']['message']
+                ?? $response->body();
+        }
 
         // Si el error es un array, convertirlo a string
         if (is_array($errorMessage)) {

@@ -91,7 +91,10 @@ class SendMessageJob implements ShouldQueue
             } else {
                 $errorMsg = $response['error'] ?? 'Unknown Evolution API error';
                 $statusCode = $response['status'] ?? 0;
-                $message->update(['status' => 'failed']);
+                $message->update([
+                    'status' => 'failed',
+                    'metadata' => array_merge($message->metadata ?? [], ['send_error' => $errorMsg]),
+                ]);
 
                 // Emitir estado fallido al frontend
                 try {
