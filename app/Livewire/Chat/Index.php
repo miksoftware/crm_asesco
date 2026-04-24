@@ -1358,7 +1358,12 @@ class Index extends Component
                 );
             } elseif (in_array($message->type, ['image', 'video', 'audio', 'document']) && $message->media_url) {
                 // Reenviar media: leer archivo y convertir a base64
-                $mediaPath = str_replace(Storage::disk('public')->url(''), '', $message->media_url);
+                $storageBaseUrl = rtrim(Storage::disk('public')->url(''), '/');
+                $mediaPath = str_replace($storageBaseUrl . '/', '', $message->media_url);
+                // Fallback: si aún tiene http, extraer solo la parte después de /storage/
+                if (str_starts_with($mediaPath, 'http')) {
+                    $mediaPath = preg_replace('#^.*/storage/#', '', $message->media_url);
+                }
                 
                 if (Storage::disk('public')->exists($mediaPath)) {
                     $fileContent = Storage::disk('public')->get($mediaPath);
@@ -1389,12 +1394,15 @@ class Index extends Component
                     $response = $evolutionApi->sendTextMessage($channel->instance_name, $number, $text);
                 }
             } else {
-                // Para otros tipos, reenviar como texto
+                // Para otros tipos o media sin archivo local, reenviar como texto
                 $text = $message->content ?? '[Mensaje reenviado]';
+                if (empty(trim($text)) || $text === '[Media]' || $text === '[Imagen]') {
+                    $text = '[Mensaje reenviado]';
+                }
                 $response = $evolutionApi->sendTextMessage($channel->instance_name, $number, $text);
             }
 
-            if ($response && $response['success']) {
+            if ($response && ($response['success'] ?? false)) {
                 // Buscar o crear contacto destino
                 $destContact = Contact::firstOrCreate(
                     ['channel_id' => $channel->id, 'phone_number' => $number],
@@ -1420,12 +1428,17 @@ class Index extends Component
                 $this->closeForwardModal();
                 $this->dispatch('toast', type: 'success', message: 'Mensaje reenviado a ' . $number);
             } else {
-                $error = $response['error'] ?? 'Error desconocido';
-                $this->dispatch('toast', type: 'error', message: 'Error al reenviar: ' . $error);
+                $error = $response['error'] ?? 'Sin respuesta de la API';
+                $statusCode = $response['status'] ?? '';
+                $this->dispatch('toast', type: 'error', message: "Error al reenviar ({$statusCode}): {$error}");
             }
         } catch (\Exception $e) {
-            Log::error('Error forwarding message', ['error' => $e->getMessage()]);
-            $this->dispatch('toast', type: 'error', message: 'Error: ' . $e->getMessage());
+            Log::error('Error forwarding message', [
+                'message_id' => $this->forwardMessageId,
+                'to' => $number,
+                'error' => $e->getMessage(),
+            ]);
+            $this->dispatch('toast', type: 'error', message: 'Error al reenviar: ' . $e->getMessage());
         }
     }
 
