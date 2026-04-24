@@ -104,8 +104,11 @@ class EvolutionApiService
 
     public function sendTextMessage(string $instanceName, string $number, string $text): array
     {
+        // Evolution API v2 espera solo el número limpio, sin @s.whatsapp.net
+        $cleanNumber = $this->cleanRecipientNumber($number);
+
         $response = $this->request()->post("/message/sendText/{$instanceName}", [
-            'number' => $number,
+            'number' => $cleanNumber,
             'text' => $text,
         ]);
 
@@ -117,8 +120,10 @@ class EvolutionApiService
      */
     public function sendImageMessage(string $instanceName, string $number, string $imageBase64, ?string $caption = null, string $mimetype = 'image/jpeg'): array
     {
+        $cleanNumber = $this->cleanRecipientNumber($number);
+
         $response = $this->request()->post("/message/sendMedia/{$instanceName}", [
-            'number' => $number,
+            'number' => $cleanNumber,
             'mediatype' => 'image',
             'mimetype' => $mimetype,
             'caption' => $caption,
@@ -133,8 +138,10 @@ class EvolutionApiService
      */
     public function sendDocumentMessage(string $instanceName, string $number, string $fileBase64, string $fileName, string $mimetype, ?string $caption = null): array
     {
+        $cleanNumber = $this->cleanRecipientNumber($number);
+
         $response = $this->request()->post("/message/sendMedia/{$instanceName}", [
-            'number' => $number,
+            'number' => $cleanNumber,
             'mediatype' => 'document',
             'mimetype' => $mimetype,
             'caption' => $caption,
@@ -150,8 +157,10 @@ class EvolutionApiService
      */
     public function sendAudioMessage(string $instanceName, string $number, string $audioBase64, string $mimetype = 'audio/ogg; codecs=opus'): array
     {
+        $cleanNumber = $this->cleanRecipientNumber($number);
+
         $response = $this->request()->post("/message/sendWhatsAppAudio/{$instanceName}", [
-            'number' => $number,
+            'number' => $cleanNumber,
             'audio' => $audioBase64,
             'encoding' => true,
         ]);
@@ -164,8 +173,10 @@ class EvolutionApiService
      */
     public function sendVideoMessage(string $instanceName, string $number, string $videoBase64, ?string $caption = null, string $mimetype = 'video/mp4'): array
     {
+        $cleanNumber = $this->cleanRecipientNumber($number);
+
         $response = $this->request()->post("/message/sendMedia/{$instanceName}", [
-            'number' => $number,
+            'number' => $cleanNumber,
             'mediatype' => 'video',
             'mimetype' => $mimetype,
             'caption' => $caption,
@@ -173,6 +184,32 @@ class EvolutionApiService
         ]);
 
         return $this->handleResponse($response);
+    }
+
+    /**
+     * Limpia el número de destinatario para la API.
+     * Evolution API v2 espera solo el número limpio para chats individuales,
+     * pero acepta el JID completo para grupos (@g.us).
+     */
+    private function cleanRecipientNumber(string $number): string
+    {
+        // Grupos: dejar el JID completo
+        if (str_contains($number, '@g.us')) {
+            return $number;
+        }
+
+        // Quitar @s.whatsapp.net, @lid, etc.
+        if (str_contains($number, '@')) {
+            $number = explode('@', $number)[0];
+        }
+
+        // Quitar sufijo :XX (formato LID alternativo como 573028537828:39)
+        if (str_contains($number, ':')) {
+            $number = explode(':', $number)[0];
+        }
+
+        // Solo dígitos
+        return preg_replace('/[^0-9]/', '', $number);
     }
 
     /**
