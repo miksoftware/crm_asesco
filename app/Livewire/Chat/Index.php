@@ -1226,29 +1226,71 @@ class Index extends Component
         if (!$contact) return;
 
         $channel = Channel::find($message->channel_id);
-        $evolutionApi = app(EvolutionApiService::class);
+        if (!$channel || $channel->status !== 'connected') {
+            $this->dispatch('toast', type: 'error', message: 'El canal no está conectado');
+            return;
+        }
 
         try {
             $message->update(['status' => 'pending']);
-            
-            $response = $evolutionApi->sendTextMessage(
-                $channel->instance_name,
-                $contact->is_group ? $contact->group_jid : ($contact->remote_jid ?? $contact->phone_number),
-                $message->content
-            );
 
-            if ($response['success']) {
-                $message->update([
-                    'message_id' => $response['data']['key']['id'] ?? null,
-                    'status' => 'sent',
-                ]);
-                $this->dispatch('toast', type: 'success', message: 'Mensaje reenviado');
+            $recipient = $contact->is_group
+                ? $contact->group_jid
+                : ($contact->remote_jid ?? $contact->phone_number);
+
+            if ($message->type === 'text') {
+                // Reenviar via Job (async, más confiable)
+                \App\Jobs\SendMessageJob::dispatch(
+                    messageId: $message->id,
+                    instanceName: $channel->instance_name,
+                    recipient: $recipient,
+                    text: $message->content ?? '',
+                    type: 'text'
+                );
+                $this->dispatch('toast', type: 'success', message: 'Mensaje en cola de reenvío');
+            } elseif (in_array($message->type, ['image', 'video', 'audio', 'document']) && $message->media_url) {
+                // Media: leer archivo y reenviar
+                $storageBaseUrl = rtrim(Storage::disk('public')->url(''), '/');
+                $mediaPath = str_replace($storageBaseUrl . '/', '', $message->media_url);
+                if (str_starts_with($mediaPath, 'http')) {
+                    $mediaPath = preg_replace('#^.*/storage/#', '', $message->media_url);
+                }
+
+                if (Storage::disk('public')->exists($mediaPath)) {
+                    $base64 = base64_encode(Storage::disk('public')->get($mediaPath));
+                    \App\Jobs\SendMessageJob::dispatch(
+                        messageId: $message->id,
+                        instanceName: $channel->instance_name,
+                        recipient: $recipient,
+                        text: $message->content ?? '',
+                        type: $message->type,
+                        mediaBase64: $base64,
+                        fileName: $message->content,
+                        mimeType: $message->media_mime_type,
+                        caption: $message->content,
+                    );
+                    $this->dispatch('toast', type: 'success', message: 'Media en cola de reenvío');
+                } else {
+                    $message->update(['status' => 'failed']);
+                    $this->dispatch('toast', type: 'error', message: 'Archivo media no encontrado');
+                }
             } else {
-                $message->update(['status' => 'failed']);
-                $this->dispatch('toast', type: 'error', message: 'Error al reenviar');
+                // Fallback: reenviar como texto
+                \App\Jobs\SendMessageJob::dispatch(
+                    messageId: $message->id,
+                    instanceName: $channel->instance_name,
+                    recipient: $recipient,
+                    text: $message->content ?? '[Mensaje]',
+                    type: 'text'
+                );
+                $this->dispatch('toast', type: 'success', message: 'Mensaje en cola de reenvío');
             }
         } catch (\Exception $e) {
             $message->update(['status' => 'failed']);
+            Log::error('Error retrying message', [
+                'message_id' => $messageId,
+                'error' => $e->getMessage(),
+            ]);
             $this->dispatch('toast', type: 'error', message: 'Error: ' . $e->getMessage());
         }
 
