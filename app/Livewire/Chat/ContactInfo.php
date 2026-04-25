@@ -156,8 +156,7 @@ class ContactInfo extends Component
     public function getFirstContactDateProperty(): ?string
     {
         $firstMessage = $this->contact->messages()
-            ->orderBy('sent_at', 'asc')
-            ->orderBy('created_at', 'asc')
+            ->orderBy('id', 'asc')
             ->first();
 
         if ($firstMessage) {

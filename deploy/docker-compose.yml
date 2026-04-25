@@ -26,7 +26,7 @@ services:
     image: mysql:8.0
     container_name: crm-asesco_mysql
     restart: unless-stopped
-    command: --default-authentication-plugin=mysql_native_password --innodb-buffer-pool-size=256M --sort-buffer-size=4M
+    command: --default-authentication-plugin=mysql_native_password --innodb-buffer-pool-size=256M --sort-buffer-size=16M --read-rnd-buffer-size=8M
     environment:
       MYSQL_ROOT_PASSWORD: root123
       MYSQL_DATABASE: crm-asesco_db
