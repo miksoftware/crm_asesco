@@ -20,13 +20,13 @@ services:
         condition: service_healthy
     environment:
       - APP_ENV=production
-      - APP_DEBUG=false
+      - APP_DEBUG=true
 
   mysql:
     image: mysql:8.0
     container_name: crm-asesco_mysql
     restart: unless-stopped
-    command: --default-authentication-plugin=mysql_native_password --innodb-buffer-pool-size=256M
+    command: --default-authentication-plugin=mysql_native_password --innodb-buffer-pool-size=256M --sort-buffer-size=4M
     environment:
       MYSQL_ROOT_PASSWORD: root123
       MYSQL_DATABASE: crm-asesco_db
@@ -87,6 +87,7 @@ services:
       - ./php-config/custom.ini:/usr/local/etc/php/conf.d/custom.ini
     depends_on:
       - php
+      - redis
     networks:
       - crm-asesco_network
       - evolution_api_evolution_api_network
@@ -110,12 +111,14 @@ services:
       - "6001:6001"
     depends_on:
       - php
+      - redis
     networks:
       - crm-asesco_network
+      - evolution_api_evolution_api_network
     restart: unless-stopped
     environment:
       - APP_ENV=production
-      - APP_DEBUG=false
+      - APP_DEBUG=true
 
   # ============================================
   # Evolution API WebSocket Listener
@@ -130,8 +133,10 @@ services:
       - ./php-config/custom.ini:/usr/local/etc/php/conf.d/custom.ini
     depends_on:
       - php
+      - redis
     networks:
       - crm-asesco_network
+      - evolution_api_evolution_api_network
     restart: unless-stopped
     environment:
       - APP_ENV=production

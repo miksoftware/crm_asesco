@@ -1,6 +1,6 @@
 FROM php:8.3-fpm
 
-# Instalar dependencias del sistema
+# Instalar dependencias del sistema y Node.js (necesario para Evolution)
 RUN apt-get update && apt-get install -y \
     git \
     curl \
@@ -15,13 +15,8 @@ RUN apt-get update && apt-get install -y \
     zip \
     unzip \
     supervisor \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
-
-# Instalar Node.js 20.x (necesario para Vite build y socket.io-client)
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y nodejs \
-    && npm install -g npm@latest \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
