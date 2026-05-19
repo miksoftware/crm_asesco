@@ -22,6 +22,12 @@ use App\Livewire\Campaigns\Results as CampaignsResults;
 use App\Livewire\Reports\ChatsAttended as ReportsChatsAttended;
 use App\Livewire\Reports\EffectiveConversations as ReportsEffectiveConversations;
 use App\Livewire\Reports\PaymentPromises as ReportsPaymentPromises;
+use App\Livewire\PaymentProofs\Index as PaymentProofsIndex;
+use App\Http\Controllers\PaymentProofController;
+
+// Rutas públicas para soportes de pago (sin autenticación)
+Route::get('/pago/{token}', [PaymentProofController::class, 'show'])->name('payment-proof.show');
+Route::post('/pago/{token}', [PaymentProofController::class, 'upload'])->name('payment-proof.upload');
 
 // Guest routes
 Route::middleware('guest')->group(function () {
@@ -45,6 +51,9 @@ Route::middleware('auth')->group(function () {
     Route::get('/campanas', CampaignsIndex::class)->name('campaigns.index')->middleware('permission:campanas.ver');
     Route::get('/campanas/crear', CampaignsCreate::class)->name('campaigns.create')->middleware('permission:campanas.crear');
     Route::get('/campanas/{campaign}/resultados', CampaignsResults::class)->name('campaigns.results')->middleware('permission:campanas.ver');
+
+    // Soportes de pago
+    Route::get('/soportes-pago', PaymentProofsIndex::class)->name('payment-proofs.index')->middleware('permission:soportes_pago.ver');
 
     // Reports
     Route::get('/reportes/chats-atendidos', ReportsChatsAttended::class)->name('reports.chats-attended')->middleware('permission:reportes.ver');

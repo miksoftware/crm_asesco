@@ -46,6 +46,14 @@ class SyncModulesAndPermissions extends Command
                     ['action' => 'eliminar', 'display_name' => 'Eliminar Campañas'],
                 ],
             ],
+            'soportes_pago' => [
+                'module' => ['name' => 'soportes_pago', 'display_name' => 'Soportes de Pago', 'icon' => 'document', 'order' => 10],
+                'permissions' => [
+                    ['action' => 'ver', 'display_name' => 'Ver Soportes de Pago'],
+                    ['action' => 'crear', 'display_name' => 'Solicitar Soportes de Pago'],
+                    ['action' => 'descargar', 'display_name' => 'Descargar Soportes de Pago'],
+                ],
+            ],
         ];
 
         $actions = Module::getActions();
