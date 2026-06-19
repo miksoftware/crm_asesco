@@ -397,7 +397,11 @@
     </div>
 
     @livewireScripts
-    
+    <!-- Audio Notification -->
+    <audio id="notification-sound" preload="auto">
+        <source src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg" type="audio/ogg">
+    </audio>
+
     <!-- Browser Push Notifications -->
     <script>
         // Request notification permission on page load
@@ -431,7 +435,7 @@
                     tag: `chat-${channelId}-${contactId}`,
                     renotify: true,
                     requireInteraction: false,
-                    silent: false
+                    silent: true // We play our own sound, so prevent double OS sound if any
                 });
 
                 notification.onclick = function(event) {
@@ -442,8 +446,8 @@
                     notification.close();
                 };
 
-                // Auto close after 5 seconds
-                setTimeout(() => notification.close(), 5000);
+                // Auto close after 10 seconds (increased from 5 to give user more time)
+                setTimeout(() => notification.close(), 10000);
             } else if (Notification.permission !== 'denied') {
                 Notification.requestPermission().then(permission => {
                     if (permission === 'granted') {
@@ -453,12 +457,34 @@
             }
         }
 
+        // Play notification sound
+        function playNotificationSound() {
+            const audio = document.getElementById('notification-sound');
+            if (audio) {
+                // To bypass browser autoplay policy, we wrap it in a try-catch
+                try {
+                    audio.currentTime = 0;
+                    const playPromise = audio.play();
+                    
+                    if (playPromise !== undefined) {
+                        playPromise.catch(error => {
+                            console.log('Auto-play was prevented by the browser. User needs to interact with the page first.', error);
+                        });
+                    }
+                } catch(e) {
+                    console.log('Error playing sound:', e);
+                }
+            }
+        }
+
         // Listen for new message events from Livewire
         window.addEventListener('browser-notification', event => {
             const { title, body, channelId, contactId } = event.detail;
             showBrowserNotification(title, body, channelId, contactId);
+            playNotificationSound();
         });
     </script>
+
     
     <!-- Toast Notifications -->
     <script>
