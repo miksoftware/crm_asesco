@@ -28,7 +28,8 @@
 
     {{-- Filtros --}}
     <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-4 mb-6">
-        <div class="flex flex-col sm:flex-row gap-4">
+        {{-- Fila 1: búsqueda + estado + canal --}}
+        <div class="flex flex-col sm:flex-row gap-3 mb-3">
             {{-- Búsqueda --}}
             <div class="flex-1">
                 <div class="relative flex items-center">
@@ -39,7 +40,7 @@
                     </div>
                     <input type="text" 
                            wire:model.live.debounce.300ms="search"
-                           placeholder="Buscar campañas..."
+                           placeholder="Buscar por nombre de campaña..."
                            class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500">
                 </div>
             </div>
@@ -67,6 +68,74 @@
                     <option value="50">50</option>
                 </select>
             </div>
+        </div>
+
+        {{-- Fila 2: canal + usuario + rango de fechas --}}
+        <div class="flex flex-col sm:flex-row gap-3">
+            {{-- Filtro por canal --}}
+            <div class="w-full sm:w-48">
+                <select wire:model.live="channelFilter"
+                        class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500">
+                    <option value="">Todos los canales</option>
+                    @foreach($this->filterChannels as $channel)
+                        <option value="{{ $channel->id }}">{{ $channel->name }}</option>
+                    @endforeach
+                </select>
+            </div>
+
+            {{-- Filtro por usuario --}}
+            <div class="w-full sm:w-48">
+                <select wire:model.live="userFilter"
+                        class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500">
+                    <option value="">Todos los usuarios</option>
+                    @foreach($this->filterUsers as $user)
+                        <option value="{{ $user->id }}">{{ $user->name }}</option>
+                    @endforeach
+                </select>
+            </div>
+
+            {{-- Fecha desde --}}
+            <div class="flex-1">
+                <div class="relative flex items-center">
+                    <div class="absolute left-3 pointer-events-none">
+                        <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                        </svg>
+                    </div>
+                    <input type="date"
+                           wire:model.live="dateFrom"
+                           class="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-sm"
+                           title="Fecha desde">
+                </div>
+            </div>
+
+            {{-- Fecha hasta --}}
+            <div class="flex-1">
+                <div class="relative flex items-center">
+                    <div class="absolute left-3 pointer-events-none">
+                        <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                        </svg>
+                    </div>
+                    <input type="date"
+                           wire:model.live="dateTo"
+                           class="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-sm"
+                           title="Fecha hasta">
+                </div>
+            </div>
+
+            {{-- Limpiar filtros --}}
+            @if($this->hasActiveFilters())
+            <div class="flex items-center">
+                <button wire:click="clearFilters"
+                        class="flex items-center gap-1.5 px-3 py-2 text-sm text-gray-600 hover:text-red-600 border border-gray-300 hover:border-red-300 rounded-lg transition-colors whitespace-nowrap">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                    Limpiar filtros
+                </button>
+            </div>
+            @endif
         </div>
     </div>
 

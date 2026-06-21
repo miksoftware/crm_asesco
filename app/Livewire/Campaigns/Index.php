@@ -34,6 +34,18 @@ class Index extends Component
     #[Url(history: true)]
     public string $statusFilter = '';
 
+    #[Url(history: true)]
+    public string $channelFilter = '';
+
+    #[Url(history: true)]
+    public string $userFilter = '';
+
+    #[Url(history: true)]
+    public string $dateFrom = '';
+
+    #[Url(history: true)]
+    public string $dateTo = '';
+
     public string $sortField = 'created_at';
     public string $sortDirection = 'desc';
     public int $perPage = 10;
@@ -65,18 +77,10 @@ class Index extends Component
     {
         $query = Campaign::with(['channel', 'user']);
 
-        // Filtro de búsqueda (nombre campaña, canal o usuario)
+        // Filtro de búsqueda (nombre campaña)
         if (!empty($this->search)) {
             $searchTerm = '%' . $this->search . '%';
-            $query->where(function ($q) use ($searchTerm) {
-                $q->where('name', 'like', $searchTerm)
-                    ->orWhereHas('channel', function ($q) use ($searchTerm) {
-                        $q->where('name', 'like', $searchTerm);
-                    })
-                    ->orWhereHas('user', function ($q) use ($searchTerm) {
-                        $q->where('name', 'like', $searchTerm);
-                    });
-            });
+            $query->where('name', 'like', $searchTerm);
         }
 
         // Filtro de estado
@@ -84,8 +88,49 @@ class Index extends Component
             $query->where('status', $this->statusFilter);
         }
 
+        // Filtro por canal
+        if (!empty($this->channelFilter)) {
+            $query->where('channel_id', $this->channelFilter);
+        }
+
+        // Filtro por usuario (persona que envió)
+        if (!empty($this->userFilter)) {
+            $query->where('user_id', $this->userFilter);
+        }
+
+        // Filtro por fecha desde
+        if (!empty($this->dateFrom)) {
+            $query->whereDate('created_at', '>=', $this->dateFrom);
+        }
+
+        // Filtro por fecha hasta
+        if (!empty($this->dateTo)) {
+            $query->whereDate('created_at', '<=', $this->dateTo);
+        }
+
         return $query->orderBy($this->sortField, $this->sortDirection)
             ->paginate($this->perPage);
+    }
+
+    public function hasActiveFilters(): bool
+    {
+        return !empty($this->search)
+            || !empty($this->statusFilter)
+            || !empty($this->channelFilter)
+            || !empty($this->userFilter)
+            || !empty($this->dateFrom)
+            || !empty($this->dateTo);
+    }
+
+    public function clearFilters(): void
+    {
+        $this->search = '';
+        $this->statusFilter = '';
+        $this->channelFilter = '';
+        $this->userFilter = '';
+        $this->dateFrom = '';
+        $this->dateTo = '';
+        $this->resetPage();
     }
 
     public function sortBy(string $field): void
@@ -174,6 +219,20 @@ class Index extends Component
     public function refreshList(): void
     {
         unset($this->campaigns);
+    }
+
+    // ─── Filter helpers ─────────────────────────────────────────
+
+    #[Computed]
+    public function filterChannels(): Collection
+    {
+        return Channel::orderBy('name')->get(['id', 'name']);
+    }
+
+    #[Computed]
+    public function filterUsers(): Collection
+    {
+        return \App\Models\User::orderBy('name')->get(['id', 'name']);
     }
 
     // ─── Excel Campaign Modal ───────────────────────────────────
