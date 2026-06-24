@@ -191,8 +191,18 @@
                         <td class="px-6 py-4 text-sm text-gray-600">
                             {{ $recipient->sent_at ? $recipient->sent_at->format('d/m/Y H:i:s') : '-' }}
                         </td>
-                        <td class="px-6 py-4 text-sm text-red-600">
-                            {{ $recipient->error_message ?? '-' }}
+                        <td class="px-6 py-4 text-sm text-red-600 max-w-xs">
+                            @if($recipient->error_message && $recipient->error_message !== '-')
+                                @if($isAdmin)
+                                    <span title="{{ $recipient->error_message }}">
+                                        {{ Str::limit($recipient->error_message, 120) }}
+                                    </span>
+                                @else
+                                    {{ in_array($recipient->status, ['failed', 'invalid']) ? 'No se encontró el número' : '-' }}
+                                @endif
+                            @else
+                                -
+                            @endif
                         </td>
                     </tr>
                     @empty

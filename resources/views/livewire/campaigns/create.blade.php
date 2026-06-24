@@ -283,17 +283,18 @@
         <div class="space-y-6">
             <h2 class="text-lg font-semibold text-gray-900">Configuración Anti-Ban</h2>
             
-            <div class="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+            <div class="p-4 bg-red-50 border border-red-200 rounded-lg">
                 <div class="flex gap-3">
-                    <svg class="w-6 h-6 text-yellow-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg class="w-6 h-6 text-red-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
                     </svg>
                     <div>
-                        <p class="font-medium text-yellow-800">Importante</p>
-                        <p class="text-sm text-yellow-700 mt-1">
-                            WhatsApp puede bloquear números que envían muchos mensajes rápidamente. 
-                            Estos ajustes ayudan a evitar bloqueos simulando comportamiento humano.
-                        </p>
+                        <p class="font-medium text-red-800">⚠️ Configuración crítica para evitar bloqueos</p>
+                        <ul class="text-sm text-red-700 mt-1 space-y-1 list-disc list-inside">
+                            <li>Delays muy bajos (menos de 8 s) aumentan el riesgo de bloqueo por WhatsApp.</li>
+                            <li>Lotes grandes sin pausa suficiente activan los filtros anti-spam.</li>
+                            <li>Recomendado: 8–20 s de delay, lotes de 20–30 mensajes, pausa de 5+ minutos.</li>
+                        </ul>
                     </div>
                 </div>
             </div>
@@ -305,9 +306,9 @@
                     </label>
                     <input type="number" 
                            wire:model="delayMin"
-                           min="3" max="30"
+                           min="5" max="60"
                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500">
-                    <p class="mt-1 text-xs text-gray-500">Recomendado: 5-10 segundos</p>
+                    <p class="mt-1 text-xs text-gray-500">Mínimo permitido: 5 s · Recomendado: 8–12 s</p>
                     @error('delayMin') <p class="mt-1 text-sm text-red-600">{{ $message }}</p> @enderror
                 </div>
 
@@ -317,9 +318,9 @@
                     </label>
                     <input type="number" 
                            wire:model="delayMax"
-                           min="5" max="60"
+                           min="10" max="120"
                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500">
-                    <p class="mt-1 text-xs text-gray-500">Recomendado: 10-20 segundos</p>
+                    <p class="mt-1 text-xs text-gray-500">Mínimo permitido: 10 s · Recomendado: 15–25 s</p>
                     @error('delayMax') <p class="mt-1 text-sm text-red-600">{{ $message }}</p> @enderror
                 </div>
 
@@ -329,9 +330,9 @@
                     </label>
                     <input type="number" 
                            wire:model="batchSize"
-                           min="10" max="100"
+                           min="5" max="100"
                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500">
-                    <p class="mt-1 text-xs text-gray-500">Pausa larga después de este número de mensajes</p>
+                    <p class="mt-1 text-xs text-gray-500">Recomendado: 20–30 mensajes por lote</p>
                     @error('batchSize') <p class="mt-1 text-sm text-red-600">{{ $message }}</p> @enderror
                 </div>
 
@@ -341,9 +342,9 @@
                     </label>
                     <input type="number" 
                            wire:model="batchPause"
-                           min="60" max="900"
+                           min="60" max="1800"
                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500">
-                    <p class="mt-1 text-xs text-gray-500">Recomendado: 300 segundos (5 minutos)</p>
+                    <p class="mt-1 text-xs text-gray-500">Recomendado: 300–600 s (5–10 minutos)</p>
                     @error('batchPause') <p class="mt-1 text-sm text-red-600">{{ $message }}</p> @enderror
                 </div>
             </div>

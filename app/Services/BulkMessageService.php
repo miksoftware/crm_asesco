@@ -88,12 +88,14 @@ class BulkMessageService
                     'status' => 'failed',
                     'error_message' => $errorMsg,
                 ]);
-                
+
                 Log::warning('Bulk message failed', [
                     'campaign_id' => $campaign->id,
                     'recipient_id' => $recipient->id,
                     'phone' => $phoneNumber,
-                    'error' => $errorMsg,
+                    'status_code' => $response['status'] ?? 0,
+                    'raw_error' => $response['error'] ?? '',
+                    'parsed_error' => $errorMsg,
                 ]);
                 
                 return false;
@@ -122,53 +124,77 @@ class BulkMessageService
     {
         $rawError = $response['error'] ?? '';
         $statusCode = $response['status'] ?? 0;
-        
+
+        // Convertir a string si es array u objeto
+        if (is_array($rawError)) {
+            $rawError = json_encode($rawError);
+        }
+        $rawErrorLower = strtolower((string) $rawError);
+
         // Detectar si el número no existe en WhatsApp
-        if (str_contains($rawError, '"exists":false') || str_contains($rawError, 'exists":false')) {
+        if (str_contains($rawError, '"exists":false') || str_contains($rawError, 'exists":false') || str_contains($rawErrorLower, 'not registered')) {
             return 'El número no está registrado en WhatsApp';
         }
-        
+
         // Detectar errores de número inválido
-        if (str_contains($rawError, 'invalid') || str_contains($rawError, 'Invalid')) {
+        if (str_contains($rawErrorLower, 'invalid') || str_contains($rawErrorLower, 'inválido') || str_contains($rawErrorLower, 'bad number')) {
             return 'Número de teléfono inválido';
         }
-        
-        // Detectar errores de conexión
-        if (str_contains($rawError, 'not connected') || str_contains($rawError, 'disconnected')) {
-            return 'Canal desconectado';
+
+        // Detectar errores de conexión / instancia desconectada
+        if (str_contains($rawErrorLower, 'not connected') || str_contains($rawErrorLower, 'disconnected') || str_contains($rawErrorLower, 'closed') || str_contains($rawErrorLower, 'unauthorized')) {
+            return 'Canal desconectado — reconectar el canal e intentar de nuevo';
         }
-        
-        // Detectar errores de rate limit
-        if (str_contains($rawError, 'rate') || str_contains($rawError, 'limit') || $statusCode === 429) {
-            return 'Límite de envío alcanzado, intente más tarde';
+
+        // Detectar errores de rate limit / spam score
+        if (str_contains($rawErrorLower, 'rate') || str_contains($rawErrorLower, 'too many') || $statusCode === 429) {
+            return 'Límite de envío alcanzado — aumentar el delay entre mensajes';
         }
-        
+
+        // Detectar errores de bloqueo / spam
+        if (str_contains($rawErrorLower, 'blocked') || str_contains($rawErrorLower, 'spam') || str_contains($rawErrorLower, 'ban')) {
+            return 'Número bloqueado o marcado como spam por WhatsApp';
+        }
+
         // Detectar errores de timeout
-        if (str_contains($rawError, 'timeout') || str_contains($rawError, 'Timeout')) {
-            return 'Tiempo de espera agotado';
+        if (str_contains($rawErrorLower, 'timeout') || str_contains($rawErrorLower, 'timed out')) {
+            return 'Tiempo de espera agotado (Evolution API no respondió)';
         }
-        
-        // Detectar errores de bloqueo
-        if (str_contains($rawError, 'blocked') || str_contains($rawError, 'spam')) {
-            return 'Número bloqueado o marcado como spam';
+
+        // Detectar errores de instancia no encontrada
+        if (str_contains($rawErrorLower, 'instance not found') || str_contains($rawErrorLower, 'no instance')) {
+            return 'Instancia de WhatsApp no encontrada en Evolution API';
         }
-        
-        // Detectar errores de instancia
-        if (str_contains($rawError, 'instance') || str_contains($rawError, 'Instance')) {
-            return 'Error en la instancia de WhatsApp';
+
+        // Intentar extraer mensaje útil del JSON de error
+        $decoded = json_decode($rawError, true);
+        if (is_array($decoded)) {
+            $msg = $decoded['message'] ?? $decoded['error'] ?? $decoded['response']['message'] ?? null;
+            if ($msg) {
+                if (is_array($msg)) {
+                    $msg = implode('; ', array_map(fn($m) => is_array($m) ? json_encode($m) : $m, $msg));
+                }
+                $msg = (string) $msg;
+                return strlen($msg) > 200 ? substr($msg, 0, 200) . '...' : $msg;
+            }
         }
-        
-        // Error genérico con código de estado
+
+        // Error genérico con código de estado — incluir detalles reales
         if ($statusCode >= 400 && $statusCode < 500) {
-            return 'Error en la solicitud (código ' . $statusCode . ')';
+            $detail = $rawError ? ': ' . (strlen($rawError) > 150 ? substr($rawError, 0, 150) . '...' : $rawError) : '';
+            return 'Error en la solicitud (código ' . $statusCode . ')' . $detail;
         }
-        
+
         if ($statusCode >= 500) {
-            return 'Error del servidor de WhatsApp';
+            return 'Error del servidor de WhatsApp (código ' . $statusCode . ')';
         }
-        
-        // Si no se puede identificar, mostrar un mensaje genérico
-        return $rawError ?: 'Error desconocido al enviar';
+
+        // Si no se puede identificar, mostrar error real pero limitado
+        if ($rawError) {
+            return strlen($rawError) > 200 ? substr($rawError, 0, 200) . '...' : $rawError;
+        }
+
+        return 'Error desconocido al enviar';
     }
 
     /**
@@ -214,18 +240,29 @@ class BulkMessageService
     }
 
     /**
-     * Normaliza el número de teléfono.
+     * Normaliza el número de teléfono al formato internacional esperado por Evolution API.
+     * Soporta números colombianos (móvil y fijo) y formatos internacionales.
      */
     private function normalizePhoneNumber(string $phoneNumber): string
     {
-        // Eliminar todos los caracteres no numéricos
+        // Eliminar todo lo que no sea dígito
         $normalized = preg_replace('/[^0-9]/', '', $phoneNumber);
-        
-        // Si no tiene código de país (menos de 12 dígitos para Colombia), agregar 57
-        if (strlen($normalized) === 10) {
-            $normalized = '57' . $normalized;
+
+        // Quitar ceros iniciales redundantes (ej: 0573001234567 → 573001234567)
+        $normalized = ltrim($normalized, '0');
+
+        // Si ya tiene código de país completo (Colombia 57 + 10 dígitos = 12 dígitos)
+        if (strlen($normalized) === 12 && str_starts_with($normalized, '57')) {
+            return $normalized;
         }
-        
+
+        // Número colombiano local de 10 dígitos (ej: 3001234567) → agregar 57
+        if (strlen($normalized) === 10 && (str_starts_with($normalized, '3') || str_starts_with($normalized, '6'))) {
+            return '57' . $normalized;
+        }
+
+        // Número con 57 + 9 dígitos (error tipográfico, no válido, dejar pasar para que la API lo rechace con mensaje claro)
+        // Números de otros países (más de 12 dígitos o prefijo diferente a 57) → dejar como están
         return $normalized;
     }
 

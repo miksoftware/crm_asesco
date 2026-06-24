@@ -42,16 +42,16 @@ class Create extends Component
     public string $manualNumbers = '';
 
     // Step 4: Configuración anti-ban
-    #[Rule('required|integer|min:3|max:30')]
-    public int $delayMin = 5;
-
     #[Rule('required|integer|min:5|max:60')]
-    public int $delayMax = 15;
+    public int $delayMin = 8;
 
-    #[Rule('required|integer|min:10|max:100')]
-    public int $batchSize = 50;
+    #[Rule('required|integer|min:10|max:120')]
+    public int $delayMax = 20;
 
-    #[Rule('required|integer|min:60|max:900')]
+    #[Rule('required|integer|min:5|max:100')]
+    public int $batchSize = 30;
+
+    #[Rule('required|integer|min:60|max:1800')]
     public int $batchPause = 300;
 
     // UI state
@@ -252,10 +252,10 @@ class Create extends Component
             'name' => 'required|min:3|max:100',
             'channelId' => 'required|exists:channels,id',
             'messageContent' => 'required|min:1|max:4096',
-            'delayMin' => 'required|integer|min:3|max:30',
-            'delayMax' => 'required|integer|min:5|max:60',
-            'batchSize' => 'required|integer|min:10|max:100',
-            'batchPause' => 'required|integer|min:60|max:900',
+            'delayMin' => 'required|integer|min:5|max:60',
+            'delayMax' => 'required|integer|min:10|max:120',
+            'batchSize' => 'required|integer|min:5|max:100',
+            'batchPause' => 'required|integer|min:60|max:1800',
         ]);
 
         if (empty($this->recipients)) {

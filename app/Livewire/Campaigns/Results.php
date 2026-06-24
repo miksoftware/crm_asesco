@@ -20,6 +20,8 @@ class Results extends Component
 
     public Campaign $campaign;
 
+    public bool $isAdmin = false;
+
     #[Url(history: true)]
     public string $statusFilter = '';
 
@@ -31,6 +33,8 @@ class Results extends Component
     public function mount(Campaign $campaign): void
     {
         $this->campaign = $campaign;
+        $this->isAdmin = auth()->user()->email === 'admin@asesco.com'
+            || auth()->user()->hasRole('admin');
     }
 
     #[Computed]
