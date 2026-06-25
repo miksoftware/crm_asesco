@@ -1,5 +1,6 @@
 <div class="h-[calc(100vh-5rem)] flex flex-col overflow-hidden" 
      x-data="{ showContactInfo: false, imageModal: { open: false, url: '' }, openImage(url) { this.imageModal.url = url; this.imageModal.open = true; }, closeImage() { this.imageModal.open = false; this.imageModal.url = ''; }, downloadImage() { const a = document.createElement('a'); a.href = this.imageModal.url; a.download = this.imageModal.url.split('/').pop() || 'imagen'; a.click(); } }"
+     @contact-changed.window="showContactInfo = true"
      wire:poll.30s="refreshUnreadCounts">
     @if($this->channels->isEmpty())
         <div class="flex-1 flex items-center justify-center bg-gray-50">
