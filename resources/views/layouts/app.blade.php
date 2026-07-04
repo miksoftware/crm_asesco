@@ -12,7 +12,7 @@
     @vite(['resources/css/app.css', 'resources/js/app.js'])
     @livewireStyles
 </head>
-<body class="antialiased bg-gray-100" x-data="{ 
+<body class="antialiased bg-gray-100 overflow-x-hidden" x-data="{ 
     sidebarOpen: localStorage.getItem('sidebarOpen') !== 'false',
     toggleSidebar() {
         this.sidebarOpen = !this.sidebarOpen;
@@ -339,7 +339,7 @@
         </aside>
 
         <!-- Main Content -->
-        <div class="flex-1 transition-all duration-300" :class="sidebarOpen ? 'ml-64' : 'ml-20'">
+        <div class="flex-1 min-w-0 flex flex-col transition-all duration-300" :class="sidebarOpen ? 'ml-64' : 'ml-20'">
             <!-- Top Bar -->
             <header class="bg-white shadow-sm sticky top-0 z-30">
                 <div class="flex items-center justify-between px-6 py-4">
@@ -390,7 +390,7 @@
             </header>
 
             <!-- Page Content -->
-            <main class="{{ $currentRoute === 'chat.index' ? 'p-2' : 'p-6' }}">
+            <main class="{{ $currentRoute === 'chat.index' ? 'p-2' : 'p-6' }} flex-1 min-w-0 flex flex-col">
                 {{ $slot }}
             </main>
         </div>
