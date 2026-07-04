@@ -14,16 +14,16 @@
         </div>
     @else
         <!-- Channel Tabs - Full Width Top Bar -->
-        <div class="bg-white border-b-2 border-gray-300 flex-shrink-0 overflow-x-auto scrollbar-hide" style="-ms-overflow-style:none;scrollbar-width:none;">
-            <div class="flex min-w-max">
+        <div class="bg-white border-b border-gray-200 flex-shrink-0 p-2">
+            <div class="flex flex-wrap gap-2">
                 @foreach($this->channels as $channel)
                     @php $channelUnread = $this->getChannelUnreadCount($channel->id); @endphp
                     <button wire:click="selectChannel({{ $channel->id }})"
                             wire:key="channel-tab-{{ $channel->id }}"
-                            class="px-3 py-2.5 text-xs font-medium border-b-2 -mb-[2px] transition-colors whitespace-nowrap
+                            class="px-3 py-1.5 text-xs font-medium rounded-lg transition-colors whitespace-nowrap border
                                    {{ $selectedChannelId === $channel->id 
-                                      ? 'border-green-500 text-green-600 bg-green-50' 
-                                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50' }}">
+                                      ? 'border-green-500 bg-green-50 text-green-700 shadow-sm' 
+                                      : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50 hover:text-gray-800' }}">
                         <span class="flex items-center justify-center gap-1.5">
                             <span class="w-2 h-2 rounded-full flex-shrink-0 {{ $channel->status === 'connected' ? 'bg-green-500' : ($channel->status === 'connecting' ? 'bg-yellow-500 animate-pulse' : 'bg-red-500') }}" title="{{ $channel->status_label }}"></span>
                             <span class="truncate max-w-[100px]">{{ $channel->name }}</span>
