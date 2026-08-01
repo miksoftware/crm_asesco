@@ -29,19 +29,27 @@ class LidResolverService
         $remoteJid = $key['remoteJid'] ?? '';
         $instanceName = $webhookData['instance'] ?? null;
 
-        // Si no es un LID, retornar el JID tal cual
+        // Si no es un LID y el número extraído parece un teléfono real, no hace
+        // falta resolver nada.
         if (!$this->isLidJid($remoteJid)) {
             $phone = $this->extractPhoneFromJid($remoteJid);
-            return new LidResolutionResult(
-                resolved: true,
-                phoneNumber: $phone,
-                jid: $remoteJid,
-                lidIdentifier: null,
-                method: 'direct'
-            );
-        }
+            if (\App\Models\Contact::isValidPhoneFormat($phone)) {
+                return new LidResolutionResult(
+                    resolved: true,
+                    phoneNumber: $phone,
+                    jid: $remoteJid,
+                    lidIdentifier: null,
+                    method: 'direct'
+                );
+            }
 
-        $lidPart = $this->extractLidPart($remoteJid);
+            // WhatsApp a veces entrega un LID disfrazado de número normal
+            // (sin "@lid" literal en el JID). Tratarlo igual que un LID explícito
+            // y aplicar el mismo algoritmo de resolución.
+            $lidPart = $phone;
+        } else {
+            $lidPart = $this->extractLidPart($remoteJid);
+        }
 
         // PRIORIDAD 1: remoteJidAlt
         $phone = $this->tryRemoteJidAlt($key);
@@ -142,11 +150,10 @@ class LidResolverService
     /**
      * Extraer número de teléfono de un JID estándar.
      */
-    private function extractPhoneFromJid(string $jid): ?string
+    private function extractPhoneFromJid(string $jid): string
     {
         $part = explode('@', $jid)[0];
-        $clean = explode(':', $part)[0];
-        return preg_match('/^[1-9]\d{9,14}$/', $clean) ? $clean : $clean;
+        return explode(':', $part)[0];
     }
 
     /**

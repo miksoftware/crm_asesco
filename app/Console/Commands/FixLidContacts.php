@@ -75,15 +75,19 @@ class FixLidContacts extends Command
     {
         $this->line('  → Buscando contactos con LID...');
         
-        // Find ALL contacts where phone_number doesn't look like a real phone number
-        // Real Colombian numbers: 57 + 10 digits = 12 digits total
-        // Real international numbers: 10-15 digits starting with 1-9
+        // Find ALL contacts where phone_number doesn't look like a real phone number.
+        // Misma regla que Contact::isValidPhoneFormat()/needsNumberResolution() para
+        // que este comando detecte exactamente los mismos casos que muestra el banner
+        // "Contacto sin número real asignado" en el chat.
+        // - Colombiano válido: 57 + 10 dígitos = 12 dígitos exactos
+        // - Otros países: 10-13 dígitos totales, sin empezar por 57
         $lidContacts = Contact::where('channel_id', $channel->id)
+            ->where('is_group', false)
             ->where(function ($q) {
-                // Phone numbers that are too long (LIDs are usually 13+ digits)
-                $q->whereRaw("LENGTH(phone_number) > 15")
-                  // Or don't match valid phone pattern (10-15 digits starting with valid country code)
-                  ->orWhereRaw("phone_number NOT REGEXP '^[1-9][0-9]{9,14}$'")
+                $q->whereRaw("NOT (
+                        phone_number REGEXP '^57[0-9]{10}$'
+                        OR (phone_number NOT LIKE '57%' AND phone_number REGEXP '^[1-9][0-9]{9,12}$')
+                    )")
                   // Or have @lid in remote_jid
                   ->orWhere('remote_jid', 'like', '%@lid');
             })

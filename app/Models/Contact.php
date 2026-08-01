@@ -139,6 +139,34 @@ class Contact extends Model
     }
 
     /**
+     * Valida si una cadena de dígitos tiene forma de número de teléfono real.
+     * Fuente única de verdad usada tanto aquí como en LidResolverService,
+     * para que un LID disfrazado de número normal no se cuele como válido.
+     */
+    public static function isValidPhoneFormat(?string $phone): bool
+    {
+        if (!$phone) {
+            return false;
+        }
+
+        // Número colombiano válido: 57 + 10 dígitos = 12 dígitos exactos
+        if (preg_match('/^57\d{10}$/', $phone)) {
+            return true;
+        }
+
+        // Si empieza con 57 pero no tiene el formato correcto, es inválido
+        if (str_starts_with($phone, '57')) {
+            return false;
+        }
+
+        // Para números NO colombianos: solo aceptar formatos internacionales razonables
+        // Códigos de país comunes: 1 (USA/CAN), 44 (UK), 34 (España), 52 (México),
+        // 54 (Argentina), 55 (Brasil), 56 (Chile), 58 (Venezuela), 51 (Perú), 593 (Ecuador)
+        // Rango válido: 10-13 dígitos totales (código país + número local)
+        return (bool) preg_match('/^[1-9]\d{9,12}$/', $phone);
+    }
+
+    /**
      * Detecta si este contacto necesita resolución manual de número.
      * Retorna true si:
      * - Tiene is_lid=true y no está resuelto
@@ -167,26 +195,7 @@ class Contact extends Model
             return true;
         }
 
-        // Número colombiano válido: 57 + 10 dígitos = 12 dígitos exactos
-        if (preg_match('/^57\d{10}$/', $phone)) {
-            return false;
-        }
-
-        // Si empieza con 57 pero no tiene el formato correcto, es inválido
-        if (str_starts_with($phone, '57')) {
-            return true;
-        }
-
-        // Para números NO colombianos: solo aceptar formatos internacionales razonables
-        // Códigos de país comunes: 1 (USA/CAN), 44 (UK), 34 (España), 52 (México), 
-        // 54 (Argentina), 55 (Brasil), 56 (Chile), 58 (Venezuela), 51 (Perú), 593 (Ecuador)
-        // Rango válido: 10-13 dígitos totales (código país + número local)
-        if (preg_match('/^[1-9]\d{9,12}$/', $phone)) {
-            return false;
-        }
-
-        // Todo lo demás (14+ dígitos, formatos raros) necesita resolución
-        return true;
+        return !self::isValidPhoneFormat($phone);
     }
 
     /**

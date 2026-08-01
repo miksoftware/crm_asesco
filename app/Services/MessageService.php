@@ -7,6 +7,7 @@ use App\Models\Channel;
 use App\Models\Contact;
 use App\Models\Message;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -235,15 +236,25 @@ class MessageService
             }
             
             // Determinar JID para almacenar
+            $needsActiveResolution = false;
             if ($isLidLead) {
-                // LID sin resolver: descartar silenciosamente
-                // No crear contactos con LID — el cliente no quiere verlos
-                Log::debug('Mensaje de LID sin resolver descartado', [
-                    'remoteJid' => $remoteJid,
-                    'lid' => $lidPart,
-                    'pushName' => $pushName,
-                ]);
-                return null;
+                if ($lidResolver->isLidJid($remoteJid)) {
+                    // LID explícito sin resolver: descartar silenciosamente
+                    // No crear contactos con LID — el cliente no quiere verlos
+                    Log::debug('Mensaje de LID sin resolver descartado', [
+                        'remoteJid' => $remoteJid,
+                        'lid' => $lidPart,
+                        'pushName' => $pushName,
+                    ]);
+                    return null;
+                }
+
+                // El remoteJid no traía "@lid" pero el número tampoco es real
+                // (WhatsApp lo disfrazó de número normal). A diferencia del caso
+                // anterior, sí conservamos la conversación y resolvemos en background.
+                $needsActiveResolution = true;
+                $contactPhone = $lidPart;
+                $contactJid = $remoteJid;
             } else {
                 $contactPhone = $phoneNumber;
                 $contactJid = $phoneNumber . '@s.whatsapp.net';
@@ -259,8 +270,8 @@ class MessageService
                     'channel_id' => $channel->id,
                     'phone_number' => $contactPhone,
                     'remote_jid' => $contactJid,
-                    'is_lid' => false,
-                    'lid_jid' => null,
+                    'is_lid' => $needsActiveResolution,
+                    'lid_jid' => $needsActiveResolution ? $lidPart : null,
                     'push_name' => $safePushName,
                     'name' => $safePushName,
                     'labels' => [],
@@ -290,6 +301,15 @@ class MessageService
                 
                 if (!empty($updates)) {
                     $contact->update($updates);
+                }
+            }
+
+            // Resolución activa en background (máx. una vez cada 10 min por contacto)
+            if ($needsActiveResolution && $contact->needsNumberResolution()) {
+                $dedupeKey = "lid_active_resolve:{$contact->id}";
+                if (!Cache::has($dedupeKey)) {
+                    Cache::put($dedupeKey, true, 600);
+                    \App\Jobs\ResolveLidToPhoneJob::dispatch($contact->id, $lidPart, $channel->instance_name);
                 }
             }
         }

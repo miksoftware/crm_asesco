@@ -31,3 +31,10 @@ Schedule::command('promises:send')
     ->everyMinute()
     ->withoutOverlapping()
     ->runInBackground();
+
+// Corregir contactos con LID/números inválidos, fusionar duplicados y
+// normalizar remote_jid (todas las noches, hora de bajo tráfico)
+Schedule::command('contacts:fix-lids')
+    ->dailyAt('03:00')
+    ->withoutOverlapping()
+    ->runInBackground();
