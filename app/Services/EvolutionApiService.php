@@ -102,14 +102,35 @@ class EvolutionApiService
         return $this->handleResponse($response);
     }
 
-    public function sendTextMessage(string $instanceName, string $number, string $text): array
+    public function sendTextMessage(string $instanceName, string $number, string $text, ?int $delayMs = null): array
     {
         // Evolution API v2 espera solo el número limpio, sin @s.whatsapp.net
         $cleanNumber = $this->cleanRecipientNumber($number);
 
-        $response = $this->request()->post("/message/sendText/{$instanceName}", [
+        $payload = [
             'number' => $cleanNumber,
             'text' => $text,
+        ];
+
+        // Evolution API muestra "escribiendo..." en el chat del destinatario
+        // durante $delayMs (ms) antes de entregar el mensaje.
+        if ($delayMs !== null && $delayMs > 0) {
+            $payload['delay'] = $delayMs;
+        }
+
+        $response = $this->request()->post("/message/sendText/{$instanceName}", $payload);
+
+        return $this->handleResponse($response);
+    }
+
+    /**
+     * Set the instance-wide presence status (available, unavailable, composing, recording).
+     * Nota: aplica a nivel de instancia, no a un chat específico.
+     */
+    public function setPresence(string $instanceName, string $presence): array
+    {
+        $response = $this->request()->post("/instance/setPresence/{$instanceName}", [
+            'presence' => $presence,
         ]);
 
         return $this->handleResponse($response);

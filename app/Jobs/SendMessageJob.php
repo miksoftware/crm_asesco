@@ -56,7 +56,7 @@ class SendMessageJob implements ShouldQueue
 
         try {
             $response = match ($this->type) {
-                'text' => $evolutionApi->sendTextMessage($this->instanceName, $this->recipient, $this->text),
+                'text' => $evolutionApi->sendTextMessage($this->instanceName, $this->recipient, $this->text, $this->calculateTypingDelay()),
                 'image' => $evolutionApi->sendImageMessage($this->instanceName, $this->recipient, $this->mediaBase64, $this->caption, $this->mimeType ?? 'image/jpeg'),
                 'video' => $evolutionApi->sendVideoMessage($this->instanceName, $this->recipient, $this->mediaBase64, $this->caption, $this->mimeType ?? 'video/mp4'),
                 'audio' => $evolutionApi->sendAudioMessage($this->instanceName, $this->recipient, $this->mediaBase64, $this->mimeType ?? 'audio/ogg; codecs=opus'),
@@ -138,6 +138,25 @@ class SendMessageJob implements ShouldQueue
             // Re-throw so the queue can retry
             throw $e;
         }
+    }
+
+    /**
+     * Estima cuánto tiempo mostrar "escribiendo..." antes de enviar el texto,
+     * simulando velocidad de escritura humana para reducir el riesgo de bloqueo.
+     */
+    private function calculateTypingDelay(): ?int
+    {
+        if (!config('services.evolution.typing_simulation', true)) {
+            return null;
+        }
+
+        $min = (int) config('services.evolution.typing_min_delay_ms', 1200);
+        $max = (int) config('services.evolution.typing_max_delay_ms', 6000);
+
+        // ~45 ms por carácter (~13 caracteres/segundo) sobre la base mínima
+        $estimated = $min + (mb_strlen($this->text) * 45);
+
+        return (int) min($estimated, $max);
     }
 
     public function failed(\Throwable $exception): void

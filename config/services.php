@@ -38,6 +38,10 @@ return [
     'evolution' => [
         'url' => env('EVOLUTION_API_URL', 'http://localhost:8080'),
         'api_key' => env('EVOLUTION_API_KEY', ''),
+        // Simula "escribiendo..." antes de enviar un texto (reduce riesgo de bloqueo de Meta)
+        'typing_simulation' => env('EVOLUTION_TYPING_SIMULATION', true),
+        'typing_min_delay_ms' => env('EVOLUTION_TYPING_MIN_DELAY_MS', 1200),
+        'typing_max_delay_ms' => env('EVOLUTION_TYPING_MAX_DELAY_MS', 6000),
     ],
 
 ];
