@@ -305,18 +305,18 @@ class EffectiveConversations extends Component
             ->pluck('contact_id')
             ->unique();
 
-        // Primary agent per contact (user who sent the LAST outgoing message in range)
-        $primaryAgents = Message::whereIn('contact_id', $contactIds)
+        // Últimos 3 mensajes salientes por contacto, para determinar el "Agente Gestor"
+        $outgoingMessages = Message::whereIn('contact_id', $contactIds)
             ->where('direction', 'outgoing')
             ->whereNotNull('user_id')
             ->whereBetween('sent_at', $dates)
             ->when($this->channelId, fn($q) => $q->where('channel_id', $this->channelId))
             ->orderByDesc('sent_at')
-            ->get()
-            ->unique('contact_id')
-            ->keyBy('contact_id');
+            ->get(['contact_id', 'user_id'])
+            ->groupBy('contact_id')
+            ->map(fn($messages) => $messages->take(3));
 
-        $userIds = $primaryAgents->pluck('user_id')->unique();
+        $userIds = $outgoingMessages->flatten()->pluck('user_id')->unique();
         $users = User::whereIn('id', $userIds)->pluck('name', 'id');
 
         $spreadsheet = new Spreadsheet();
@@ -326,7 +326,7 @@ class EffectiveConversations extends Component
         $headers = [
             'ID', 'Nombre', 'Número de WhatsApp', 'Etiquetas',
             'Fecha de ultimo contacto', 'Hora de ultimo contacto',
-            'Fecha de creación', 'Agente Principal', 'ID del Agente Principal',
+            'Fecha de creación', 'Agente Principal', 'Agente Gestor',
             'Mensajes Enviados', 'Mensajes Recibidos', 'Conversaciones',
         ];
         foreach ($headers as $col => $header) {
@@ -356,9 +356,19 @@ class EffectiveConversations extends Component
             // Created at
             $createdAt = $contact->created_at ? $contact->created_at->format('d/m/Y') : '-';
 
-            // Primary agent
-            $agentInfo = $primaryAgents->get($contact->id);
-            $agentName = $agentInfo ? ($users->get($agentInfo->user_id) ?? '-') : '-';
+            // Agente Principal: el agente asignado formalmente a ese chat
+            $primaryAgentName = $contact->assignedUser?->name ?? 'Sin asignar';
+
+            // Agente Gestor: quien manejó los últimos 3 mensajes salientes (siempre debe tener nombre)
+            $managerName = '-';
+            $lastMessages = $outgoingMessages->get($contact->id);
+            if ($lastMessages && $lastMessages->isNotEmpty()) {
+                $counts = $lastMessages->countBy('user_id');
+                $maxCount = $counts->max();
+                $topUserIds = $counts->filter(fn($count) => $count === $maxCount)->keys();
+                $managerUserId = $lastMessages->first(fn($m) => $topUserIds->contains($m->user_id))->user_id;
+                $managerName = $users->get($managerUserId) ?? '-';
+            }
 
             // Counts
             $sent = $outgoingCounts->get($contact->id, 0);
@@ -372,8 +382,8 @@ class EffectiveConversations extends Component
             $sheet->setCellValue([5, $row], $lastDate);
             $sheet->setCellValue([6, $row], $lastTime);
             $sheet->setCellValue([7, $row], $createdAt);
-            $sheet->setCellValue([8, $row], $agentName);
-            $sheet->setCellValue([9, $row], $agentName);
+            $sheet->setCellValue([8, $row], $primaryAgentName);
+            $sheet->setCellValue([9, $row], $managerName);
             $sheet->setCellValue([10, $row], $sent);
             $sheet->setCellValue([11, $row], $received);
             $sheet->setCellValue([12, $row], $conversations);
