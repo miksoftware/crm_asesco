@@ -29,7 +29,14 @@ class Edit extends Component
         $this->display_name = $role->display_name;
         $this->description = $role->description ?? '';
         $this->color = $role->color;
-        $this->selectedPermissions = $role->permissions->pluck('id')->toArray();
+        $this->selectedPermissions = array_values(array_map('intval', $role->permissions->pluck('id')->toArray()));
+    }
+
+    public function updatedSelectedPermissions(): void
+    {
+        if (is_array($this->selectedPermissions)) {
+            $this->selectedPermissions = array_values(array_map('intval', $this->selectedPermissions));
+        }
     }
 
     public function rules(): array
@@ -65,9 +72,9 @@ class Edit extends Component
         $allSelected = count(array_intersect($permissions, $this->selectedPermissions)) === count($permissions);
 
         if ($allSelected) {
-            $this->selectedPermissions = array_diff($this->selectedPermissions, $permissions);
+            $this->selectedPermissions = array_values(array_map('intval', array_diff($this->selectedPermissions, $permissions)));
         } else {
-            $this->selectedPermissions = array_unique(array_merge($this->selectedPermissions, $permissions));
+            $this->selectedPermissions = array_values(array_map('intval', array_unique(array_merge($this->selectedPermissions, $permissions))));
         }
     }
 

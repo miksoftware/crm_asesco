@@ -66,9 +66,9 @@
                     @php
                         $modulePermissionIds = $module->permissions->pluck('id')->toArray();
                         $selectedCount = count(array_intersect($modulePermissionIds, $selectedPermissions));
-                        $allSelected = $selectedCount === count($modulePermissionIds);
+                        $allSelected = count($modulePermissionIds) > 0 && $selectedCount === count($modulePermissionIds);
                     @endphp
-                    <div class="border border-gray-200 rounded-xl overflow-hidden">
+                    <div class="border border-gray-200 rounded-xl overflow-hidden" wire:key="module-{{ $module->id }}">
                         <div class="bg-gray-50 px-4 py-3 flex items-center justify-between">
                             <div class="flex items-center gap-3">
                                 <button type="button" wire:click="toggleModule({{ $module->id }})"
@@ -88,8 +88,8 @@
                         </div>
                         <div class="px-4 py-3 grid grid-cols-2 md:grid-cols-4 gap-3">
                             @foreach($module->permissions as $permission)
-                                <label class="flex items-center gap-2 cursor-pointer group">
-                                    <input type="checkbox" wire:model="selectedPermissions" value="{{ $permission->id }}"
+                                <label class="flex items-center gap-2 cursor-pointer group" wire:key="permission-{{ $permission->id }}">
+                                    <input type="checkbox" wire:model.live="selectedPermissions" value="{{ $permission->id }}"
                                            class="w-4 h-4 text-primary-500 border-gray-300 rounded focus:ring-primary-500">
                                     <span class="text-sm text-gray-600 group-hover:text-gray-900">{{ ucfirst($permission->action) }}</span>
                                 </label>

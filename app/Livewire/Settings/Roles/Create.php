@@ -28,6 +28,13 @@ class Create extends Component
 
     public array $selectedPermissions = [];
 
+    public function updatedSelectedPermissions(): void
+    {
+        if (is_array($this->selectedPermissions)) {
+            $this->selectedPermissions = array_values(array_map('intval', $this->selectedPermissions));
+        }
+    }
+
     public function save(): void
     {
         $this->validate();
@@ -51,9 +58,9 @@ class Create extends Component
         $allSelected = count(array_intersect($permissions, $this->selectedPermissions)) === count($permissions);
 
         if ($allSelected) {
-            $this->selectedPermissions = array_diff($this->selectedPermissions, $permissions);
+            $this->selectedPermissions = array_values(array_map('intval', array_diff($this->selectedPermissions, $permissions)));
         } else {
-            $this->selectedPermissions = array_unique(array_merge($this->selectedPermissions, $permissions));
+            $this->selectedPermissions = array_values(array_map('intval', array_unique(array_merge($this->selectedPermissions, $permissions))));
         }
     }
 
