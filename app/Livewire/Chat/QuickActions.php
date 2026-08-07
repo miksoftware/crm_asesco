@@ -6,7 +6,6 @@ use App\Enums\ContactLabel;
 use App\Models\Contact;
 use App\Models\FollowUp;
 use App\Models\PaymentPromise;
-use App\Models\PaymentProof;
 use App\Services\MessageService;
 use Livewire\Component;
 use Livewire\Attributes\On;
@@ -264,65 +263,6 @@ class QuickActions extends Component
         $this->dispatch('notifications-updated');
         $this->dispatch('contact-updated');
         $this->dispatch('toast', type: 'success', message: 'Chat marcado como no leído');
-    }
-
-    /**
-     * Solicitar soporte de pago al cliente.
-     * Genera un link único y lo envía por WhatsApp.
-     */
-    public function requestPaymentProof(): void
-    {
-        if (!$this->canSend) {
-            $this->dispatch('toast', type: 'error', message: 'No tienes permiso para enviar mensajes');
-            return;
-        }
-
-        if ($this->contact->is_group) {
-            $this->dispatch('toast', type: 'error', message: 'No se puede solicitar soporte de pago en grupos');
-            return;
-        }
-
-        try {
-            // Crear el registro de soporte
-            $proof = PaymentProof::create([
-                'token' => PaymentProof::generateToken(),
-                'contact_id' => $this->contact->id,
-                'channel_id' => $this->channelId,
-                'user_id' => auth()->id(),
-                'phone_number' => $this->contact->phone_number,
-                'client_name' => $this->contact->display_name,
-                'status' => 'pending',
-                'expires_at' => now()->addDay(), // Expira en 1 día
-            ]);
-
-            // Construir el link
-            $link = url('/pago/' . $proof->token);
-
-            // Mensaje a enviar
-            $message = "Hola {$this->contact->display_name} 👋\n\n"
-                . "Para validar tu pago, por favor sube tu soporte aquí:\n"
-                . $link . "\n\n"
-                . "📌 Este enlace es de un solo uso y expira en 24 horas.\n"
-                . "_ASESCO BPO_";
-
-            // Enviar por WhatsApp
-            $messageService = app(MessageService::class);
-            $sentMessage = $messageService->sendTextMessage(
-                $this->channelId,
-                $this->contact->phone_number,
-                $message
-            );
-
-            if ($sentMessage->status === 'failed') {
-                $proof->delete();
-                $this->dispatch('toast', type: 'error', message: 'No se pudo enviar el enlace. Intenta de nuevo.');
-                return;
-            }
-
-            $this->dispatch('toast', type: 'success', message: 'Enlace de pago enviado al cliente');
-        } catch (\Exception $e) {
-            $this->dispatch('toast', type: 'error', message: 'Error: ' . $e->getMessage());
-        }
     }
 
     /**

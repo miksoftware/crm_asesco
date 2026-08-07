@@ -51,22 +51,6 @@
             </span>
         </button>
 
-        <!-- Request Payment Proof Button -->
-        <button wire:click="requestPaymentProof"
-                wire:loading.attr="disabled"
-                wire:target="requestPaymentProof"
-                wire:confirm="¿Enviar al cliente un enlace para que adjunte su soporte de pago?"
-                @if(!$canSend) disabled @endif
-                class="flex flex-col items-center justify-center p-3 bg-pink-50 hover:bg-pink-100 rounded-lg border border-pink-200 transition-colors group disabled:opacity-50 disabled:cursor-not-allowed col-span-2">
-            <svg class="w-5 h-5 text-pink-600 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/>
-            </svg>
-            <span class="text-xs font-medium text-pink-700 text-center">
-                <span wire:loading.remove wire:target="requestPaymentProof">📎 Adjuntar pago</span>
-                <span wire:loading wire:target="requestPaymentProof">Enviando enlace...</span>
-            </span>
-        </button>
-
         <!-- Mark as Unread Button -->
         <button wire:click="markAsUnread"
                 wire:loading.attr="disabled"
