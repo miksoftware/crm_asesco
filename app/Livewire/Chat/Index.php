@@ -144,11 +144,7 @@ class Index extends Component
                 }
 
                 $connectionStatus = $instance['connectionStatus'] ?? 'close';
-                $newStatus = match ($connectionStatus) {
-                    'open' => 'connected',
-                    'connecting' => 'connecting',
-                    default => 'disconnected',
-                };
+                $newStatus = Channel::resolveStatus($connectionStatus, $channel->status);
 
                 // Actualizar número de teléfono si está disponible
                 $phoneNumber = null;

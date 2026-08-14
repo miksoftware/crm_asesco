@@ -58,12 +58,9 @@ class Index extends Component
             $instanceName = trim($instance['name'] ?? '');
             if (empty($instanceName)) continue;
 
+            $existingChannel = Channel::where('instance_name', $instanceName)->first();
             $connectionStatus = $instance['connectionStatus'] ?? 'close';
-            $status = match ($connectionStatus) {
-                'open' => 'connected',
-                'connecting' => 'connecting',
-                default => 'disconnected',
-            };
+            $status = Channel::resolveStatus($connectionStatus, $existingChannel?->status);
 
             // Obtener número de ownerJid o number
             $phoneNumber = null;

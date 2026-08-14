@@ -67,4 +67,23 @@ class Channel extends Model
             default => 'Desconectado',
         };
     }
+
+    public static function resolveStatus(?string $connectionStatus, ?string $currentStatus = null): string
+    {
+        $mappedStatus = match ($connectionStatus ?? 'close') {
+            'open' => 'connected',
+            'connecting' => 'connecting',
+            default => 'disconnected',
+        };
+
+        if ($currentStatus === 'disconnected' && $mappedStatus === 'connected') {
+            return 'disconnected';
+        }
+
+        if ($currentStatus === 'qr_code' && $mappedStatus === 'connected') {
+            return 'qr_code';
+        }
+
+        return $mappedStatus;
+    }
 }
