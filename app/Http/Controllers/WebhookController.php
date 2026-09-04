@@ -122,13 +122,10 @@ class WebhookController extends Controller
             return response()->json(['status' => 'skipped', 'reason' => 'no_message_data']);
         }
 
-        // Skip outgoing messages (fromMe = true) — except in groups where we want to track our own messages
+        // Skip outgoing messages ONLY for groups (group self-messages are handled separately)
+        // Individual outgoing messages (sent from phone) are processed to maintain complete history
         $remoteJid = $data['key']['remoteJid'] ?? '';
         $isGroupMessage = str_contains($remoteJid, '@g.us');
-        
-        if (($data['key']['fromMe'] ?? false) === true && !$isGroupMessage) {
-            return response()->json(['status' => 'skipped', 'reason' => 'outgoing_message']);
-        }
 
         // Skip status/broadcast messages
         if (str_contains($remoteJid, '@broadcast') || str_contains($remoteJid, 'status@')) {

@@ -134,11 +134,20 @@ class MessageService
         $pushName = $data['pushName'] ?? null;
         $isFromMe = ($data['key']['fromMe'] ?? false) === true;
         
-        // ⭐ SKIP outgoing individual messages (fromMe=true)
-        $isGroupMessage = str_contains($remoteJid, '@g.us');
-        if ($isFromMe && !$isGroupMessage) {
-            return null;
+        // Deduplicación temprana: si ya existe el mensaje en la BD, no duplicar
+        if ($messageId) {
+            $existingMessage = Message::where('message_id', $messageId)->first();
+            if ($existingMessage) {
+                return $existingMessage;
+            }
         }
+        
+        // Detectar si es mensaje de grupo
+        $isGroupMessage = str_contains($remoteJid, '@g.us');
+        
+        // ⭐ Para mensajes individuales fromMe=true:
+        // Los procesamos como outgoing para tener el historial completo,
+        // incluyendo mensajes enviados desde el teléfono directamente.
         
         // ⭐ GROUP MESSAGE HANDLING
         $senderName = null;
@@ -208,9 +217,9 @@ class MessageService
             $isLidLead = $resolution->isUnresolvedLid();
             $lidPart = $resolution->lidIdentifier;
             
-            // Limpiar pushName
+            // Limpiar pushName (nunca usar pushName si es mensaje fromMe, ya que es el nombre del teléfono/operador)
             $safePushName = null;
-            if ($pushName && !in_array(strtolower(trim($pushName)), ['você', 'voce'])) {
+            if (!$isFromMe && $pushName && !in_array(strtolower(trim($pushName)), ['você', 'voce'])) {
                 $safePushName = $pushName;
             }
             
@@ -238,23 +247,19 @@ class MessageService
             // Determinar JID para almacenar
             $needsActiveResolution = false;
             if ($isLidLead) {
-                if ($lidResolver->isLidJid($remoteJid)) {
-                    // LID explícito sin resolver: descartar silenciosamente
-                    // No crear contactos con LID — el cliente no quiere verlos
-                    Log::debug('Mensaje de LID sin resolver descartado', [
-                        'remoteJid' => $remoteJid,
-                        'lid' => $lidPart,
-                        'pushName' => $pushName,
-                    ]);
-                    return null;
-                }
-
-                // El remoteJid no traía "@lid" pero el número tampoco es real
-                // (WhatsApp lo disfrazó de número normal). A diferencia del caso
-                // anterior, sí conservamos la conversación y resolvemos en background.
+                // ⭐ NUNCA descartar mensajes de LIDs sin resolver.
+                // Crear contacto temporal con el LID para no perder mensajes.
+                // Cuando el LID se resuelva (via webhook status, mapping, o manual),
+                // los mensajes se fusionarán automáticamente con el contacto real.
                 $needsActiveResolution = true;
                 $contactPhone = $lidPart;
                 $contactJid = $remoteJid;
+                
+                Log::info('Mensaje de LID sin resolver - creando contacto temporal', [
+                    'remoteJid' => $remoteJid,
+                    'lid' => $lidPart,
+                    'pushName' => $pushName,
+                ]);
             } else {
                 $contactPhone = $phoneNumber;
                 $contactJid = $phoneNumber . '@s.whatsapp.net';
@@ -386,8 +391,11 @@ class MessageService
             )->setTimezone(config('app.timezone'));
         }
 
-        // Determine direction for group messages
-        $direction = ($isGroupMessage && $isFromMe) ? 'outgoing' : ($isGroupMessage ? 'incoming' : 'incoming');
+        // Determine direction based on fromMe flag
+        $direction = $isFromMe ? 'outgoing' : 'incoming';
+        $status = $isFromMe ? 'sent' : 'delivered';
+        $finalSenderName = $isGroupMessage ? $senderName : ($isFromMe ? 'Tú' : ($contact->name ?? $contact->push_name));
+        $finalSenderPhone = $isGroupMessage ? $senderPhone : ($isFromMe ? $channel->phone_number : $contact->phone_number);
 
         // Create message
         $message = Message::create([
@@ -399,9 +407,9 @@ class MessageService
             'content' => $content,
             'media_url' => $mediaUrl,
             'media_mime_type' => $mediaMimeType,
-            'sender_name' => $senderName,
-            'sender_phone' => $senderPhone,
-            'status' => 'delivered',
+            'sender_name' => $finalSenderName,
+            'sender_phone' => $finalSenderPhone,
+            'status' => $status,
             'is_read' => $isFromMe,
             'metadata' => $data,
             'sent_at' => $sentAt,

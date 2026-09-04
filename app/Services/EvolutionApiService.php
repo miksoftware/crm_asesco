@@ -385,9 +385,9 @@ class EvolutionApiService
     }
 
     /**
-     * Fetch chat messages from Evolution API for an instance.
+     * Fetch chat messages from Evolution API for an instance and specific remoteJid.
      */
-    public function fetchMessages(string $instanceName, string $remoteJid, int $count = 50): array
+    public function fetchMessages(string $instanceName, string $remoteJid, int $count = 50, int $page = 1): array
     {
         // Evolution API v2: POST /chat/findMessages/{instance}
         $response = $this->request()->post("/chat/findMessages/{$instanceName}", [
@@ -396,6 +396,9 @@ class EvolutionApiService
                     'remoteJid' => $remoteJid,
                 ],
             ],
+            'page' => $page,
+            'offset' => $count,
+            'limit' => $count,
         ]);
 
         return $this->handleResponse($response);
@@ -432,6 +435,7 @@ class EvolutionApiService
         $response = $this->request()->post("/chat/findMessages/{$instanceName}", [
             'page' => $page,
             'offset' => $limit,
+            'limit' => $limit,
         ]);
 
         return $this->handleResponse($response);

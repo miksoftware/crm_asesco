@@ -222,6 +222,28 @@ class Contact extends Model
             ->first();
 
         if ($existingContact) {
+            // Preservar lid_jid en el contacto existente si no lo tiene
+            $lidToSave = $this->lid_jid ?? ($this->is_lid ? $this->phone_number : null);
+            $updates = [];
+            if ($lidToSave && !$existingContact->lid_jid) {
+                $updates['lid_jid'] = $lidToSave;
+            }
+            if (!$existingContact->push_name && $this->push_name) {
+                $updates['push_name'] = $this->push_name;
+            }
+            if (!$existingContact->name && $this->name) {
+                $updates['name'] = $this->name;
+            }
+
+            // Deduplicar mensajes por message_id antes de reasignar
+            $existingMessageIds = $existingContact->messages()
+                ->whereNotNull('message_id')
+                ->pluck('message_id')
+                ->toArray();
+            if (!empty($existingMessageIds)) {
+                $this->messages()->whereIn('message_id', $existingMessageIds)->delete();
+            }
+
             // Fusionar: mover mensajes del LID al contacto real
             $this->messages()->update(['contact_id' => $existingContact->id]);
             $this->labelRelations()->detach();
@@ -229,7 +251,11 @@ class Contact extends Model
             // Actualizar last_message_at del contacto destino
             $latestMsg = $existingContact->messages()->max('sent_at');
             if ($latestMsg) {
-                $existingContact->update(['last_message_at' => $latestMsg]);
+                $updates['last_message_at'] = $latestMsg;
+            }
+
+            if (!empty($updates)) {
+                $existingContact->update($updates);
             }
 
             // Eliminar el contacto LID

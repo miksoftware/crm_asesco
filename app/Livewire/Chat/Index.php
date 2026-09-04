@@ -1689,8 +1689,7 @@ class Index extends Component
                     break;
                 }
 
-                $messagesData = $result['data']['messages'] ?? $result['data'] ?? [];
-                $records = $messagesData['records'] ?? $messagesData ?? [];
+                $records = $this->extractRecordsFromEvolutionResponse($result['data'] ?? []);
 
                 if (empty($records)) {
                     break;
@@ -1761,24 +1760,222 @@ class Index extends Component
     }
 
     /**
-     * Clean up invalid contacts (status broadcasts, groups, newsletters, and LID-only contacts)
+     * Sync messages for the currently open conversation from Evolution API.
+     * This fetches messages specifically for the active contact across all its
+     * known JIDs (phone, LID, group), ensuring the complete chat history is available.
+     */
+    public function syncConversation(): void
+    {
+        if ($this->selectedContactId === null || $this->selectedChannelId === null) {
+            $this->dispatch('toast', type: 'error', message: 'Selecciona una conversación primero');
+            return;
+        }
+
+        $contact = Contact::find($this->selectedContactId);
+        $channel = Channel::find($this->selectedChannelId);
+
+        if (!$contact || !$channel) {
+            $this->dispatch('toast', type: 'error', message: 'Contacto o canal no encontrado');
+            return;
+        }
+
+        if ($channel->status !== 'connected') {
+            $this->dispatch('toast', type: 'error', message: 'El canal no está conectado');
+            return;
+        }
+
+        $this->isSyncing = true;
+        $evolutionApi = app(EvolutionApiService::class);
+
+        try {
+            // Determinar todos los JIDs relevantes para esta conversación
+            $jidsToFetch = [];
+
+            if ($contact->is_group) {
+                if ($contact->group_jid) {
+                    $jidsToFetch[] = $contact->group_jid;
+                }
+            } else {
+                // 1. JID estándar con número de teléfono
+                if ($contact->phone_number) {
+                    $jidsToFetch[] = $contact->phone_number . '@s.whatsapp.net';
+                }
+
+                // 2. remote_jid si está definido y es diferente
+                if ($contact->remote_jid && !in_array($contact->remote_jid, $jidsToFetch)) {
+                    $jidsToFetch[] = $contact->remote_jid;
+                }
+
+                // 3. LID JID si el contacto tiene uno
+                if ($contact->lid_jid) {
+                    $lidJid = str_contains($contact->lid_jid, '@') ? $contact->lid_jid : $contact->lid_jid . '@lid';
+                    if (!in_array($lidJid, $jidsToFetch)) {
+                        $jidsToFetch[] = $lidJid;
+                    }
+                }
+
+                // 4. Cualquier mapeo en la tabla lid_mappings
+                $mappedLid = \App\Models\LidMapping::where('phone_number', $contact->phone_number)
+                    ->where('channel_id', $channel->id)
+                    ->value('lid_jid');
+                if ($mappedLid) {
+                    $mappedLidJid = str_contains($mappedLid, '@') ? $mappedLid : $mappedLid . '@lid';
+                    if (!in_array($mappedLidJid, $jidsToFetch)) {
+                        $jidsToFetch[] = $mappedLidJid;
+                    }
+                }
+            }
+
+            $jidsToFetch = array_values(array_filter($jidsToFetch));
+
+            if (empty($jidsToFetch)) {
+                $this->isSyncing = false;
+                $this->dispatch('toast', type: 'error', message: 'No se puede determinar el identificador del contacto');
+                return;
+            }
+
+            $imported = 0;
+            $maxPages = 5; // Obtener hasta 500 mensajes por JID
+
+            foreach ($jidsToFetch as $jid) {
+                for ($page = 1; $page <= $maxPages; $page++) {
+                    $result = $evolutionApi->fetchMessages($channel->instance_name, $jid, 100, $page);
+
+                    if (!$result['success']) {
+                        Log::debug("Error fetching messages for JID {$jid} page {$page}", [
+                            'error' => $result['error'] ?? 'Unknown'
+                        ]);
+                        break;
+                    }
+
+                    $records = $this->extractRecordsFromEvolutionResponse($result['data'] ?? []);
+
+                    if (empty($records)) {
+                        break;
+                    }
+
+                    $newInThisBatch = 0;
+                    foreach ($records as $msgData) {
+                        if ($this->processImportedMessageFast($channel, $msgData, $contact)) {
+                            $imported++;
+                            $newInThisBatch++;
+                        }
+                    }
+
+                    // Si todos los mensajes de esta página ya estaban en BD, detener paginación de este JID
+                    if ($newInThisBatch === 0) {
+                        break;
+                    }
+                }
+            }
+
+            // Auto-merge de LIDs que pudieran haberse mapeado
+            $this->autoMergeLidContacts($channel->id);
+
+            $this->isSyncing = false;
+            unset($this->messages);
+            unset($this->conversations);
+            unset($this->selectedContact);
+
+            if ($imported > 0) {
+                $this->dispatch('toast', type: 'success', message: "Se sincronizaron {$imported} mensajes de esta conversación");
+            } else {
+                $this->dispatch('toast', type: 'info', message: 'La conversación ya está actualizada con WhatsApp');
+            }
+
+        } catch (\Exception $e) {
+            $this->isSyncing = false;
+            Log::error('Error syncing conversation', [
+                'contact_id' => $contact->id,
+                'error' => $e->getMessage(),
+            ]);
+            $this->dispatch('toast', type: 'error', message: 'Error al sincronizar: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Extract message records from any Evolution API response format.
+     */
+    private function extractRecordsFromEvolutionResponse(mixed $data): array
+    {
+        if (!is_array($data)) {
+            return [];
+        }
+
+        // Formato 1: data.messages.records (paginación estándar Evolution API v2)
+        if (isset($data['messages']['records']) && is_array($data['messages']['records'])) {
+            return $data['messages']['records'];
+        }
+
+        // Formato 2: data.messages (cuando messages es directamente un array secuencial)
+        if (isset($data['messages']) && is_array($data['messages']) && array_is_list($data['messages'])) {
+            return $data['messages'];
+        }
+
+        // Formato 3: data.records
+        if (isset($data['records']) && is_array($data['records'])) {
+            return $data['records'];
+        }
+
+        // Formato 4: data es directamente una lista de mensajes
+        if (array_is_list($data)) {
+            return $data;
+        }
+
+        return [];
+    }
+
+    /**
+     * Helper: save base64 media from imported messages.
+     */
+    private function saveImportedBase64Media(string $base64, string $type, string $messageId, ?string $mimeType): ?string
+    {
+        try {
+            $extension = $this->getExtensionFromMimeType($mimeType ?? 'application/octet-stream');
+            $filename = $type . '_' . $messageId . '.' . $extension;
+            $path = 'chat-media/' . date('Y/m') . '/' . $filename;
+
+            $content = base64_decode($base64);
+            if ($content === false || strlen($content) === 0) {
+                return null;
+            }
+
+            Storage::disk('public')->put($path, $content);
+            return Storage::disk('public')->url($path);
+        } catch (\Exception $e) {
+            return null;
+        }
+    }
+
+    /**
+     * Clean up invalid contacts (status broadcasts, newsletters).
+     * Does NOT delete contacts that accidentally had "Você" as name; sanitizes their name instead.
      */
     private function cleanupInvalidContacts(int $channelId): int
     {
+        // 1. Limpiar push_name / name corruptos con "Você"/"Voce" sin eliminar el contacto ni sus mensajes
+        Contact::where('channel_id', $channelId)
+            ->where(function ($query) {
+                $query->whereRaw("LOWER(TRIM(push_name)) = 'você'")
+                    ->orWhereRaw("LOWER(TRIM(push_name)) = 'voce'");
+            })
+            ->update(['push_name' => null]);
+
+        Contact::where('channel_id', $channelId)
+            ->where(function ($query) {
+                $query->whereRaw("LOWER(TRIM(name)) = 'você'")
+                    ->orWhereRaw("LOWER(TRIM(name)) = 'voce'");
+            })
+            ->update(['name' => null]);
+
+        // 2. Solo eliminar contactos verdaderamente no reales (transmisiones, estados, newsletters)
         $invalidContacts = Contact::where('channel_id', $channelId)
             ->where('is_group', false)
-            ->where(function ($q) {
-                $q->where('is_lid', false)->orWhereNull('is_lid');
-            })
             ->where(function ($query) {
                 $query
                     ->where('remote_jid', 'like', '%@broadcast%')
                     ->orWhere('remote_jid', 'like', '%status@%')
-                    ->orWhere('remote_jid', 'like', '%@newsletter%')
-                    ->orWhereRaw("LOWER(TRIM(push_name)) = 'você'")
-                    ->orWhereRaw("LOWER(TRIM(push_name)) = 'voce'")
-                    ->orWhereRaw("LOWER(TRIM(name)) = 'você'")
-                    ->orWhereRaw("LOWER(TRIM(name)) = 'voce'");
+                    ->orWhere('remote_jid', 'like', '%@newsletter%');
             })
             ->get();
 
@@ -1791,7 +1988,7 @@ class Index extends Component
         }
 
         if ($count > 0) {
-            Log::info("Cleaned up {$count} invalid contacts from channel {$channelId}");
+            Log::info("Cleaned up {$count} invalid broadcast/newsletter contacts from channel {$channelId}");
         }
 
         return $count;
@@ -2027,24 +2224,14 @@ class Index extends Component
      * 2. Checking the lid_mappings table for known LID → phone mappings
      * 3. Skipping LIDs that don't have a mapping and aren't real phone numbers
      */
-    private function processImportedMessageFast(Channel $channel, array $msgData): bool
+    private function processImportedMessageFast(Channel $channel, array $msgData, ?Contact $targetContact = null): bool
     {
         $key = $msgData['key'] ?? [];
         $messageId = $key['id'] ?? null;
         $remoteJid = $key['remoteJid'] ?? null;
-        $remoteJidAlt = $key['remoteJidAlt'] ?? null; // ⭐ Evolution API sends real phone here when remoteJid is LID
+        $remoteJidAlt = $key['remoteJidAlt'] ?? $msgData['remoteJidAlt'] ?? null;
 
         if (!$messageId || !$remoteJid) {
-            return false;
-        }
-
-        // Check if this is a group message
-        $isGroupMessage = str_contains($remoteJid, '@g.us');
-
-        // ⭐ SKIP outgoing individual messages (fromMe=true)
-        // Estos llegan con pushName="Você" y sobreescriben el nombre real del contacto.
-        $isFromMeIndividual = ($key['fromMe'] ?? false) && !$isGroupMessage;
-        if ($isFromMeIndividual) {
             return false;
         }
 
@@ -2063,19 +2250,21 @@ class Index extends Component
             return false;
         }
 
+        // Check if this is a group message
+        $isGroupMessage = str_contains($remoteJid, '@g.us');
+        $isFromMe = ($key['fromMe'] ?? false) === true;
+
         // Extract the identifier from JID
         $jidPart = explode('@', $remoteJid)[0];
         $pushName = $msgData['pushName'] ?? null;
         
-        // ⭐ GROUP MESSAGE HANDLING
+        // GROUP MESSAGE HANDLING
         $senderName = null;
         $senderPhone = null;
         
         if ($isGroupMessage) {
             $groupJid = $remoteJid;
             $groupId = $jidPart;
-            // ⭐ IMPORTANT: pushName is the SENDER's name, not the group name
-            // Only use groupName field from the API data
             $groupName = $msgData['groupName'] ?? null;
             
             // Extract sender info from participant field
@@ -2086,7 +2275,6 @@ class Index extends Component
             }
             $senderName = $pushName;
             
-            $isFromMe = $key['fromMe'] ?? false;
             if ($isFromMe) {
                 $senderName = 'Tú';
                 $senderPhone = $channel->phone_number;
@@ -2113,151 +2301,179 @@ class Index extends Component
                     ]
                 );
             } else {
-                // Update group name only if we got a real groupName (not pushName)
                 if ($groupName && $groupName !== $contact->name) {
                     $contact->update(['name' => $groupName, 'push_name' => $groupName]);
                 }
             }
         } else {
-            // ⭐ INDIVIDUAL MESSAGE HANDLING
-        
-        // Extract the identifier from JID
-        $cleanJidPart = explode(':', $jidPart)[0];
-        
-        $phoneNumber = null;
-        
-        // ⭐ PRIORITY 1: Check remoteJidAlt first (Evolution API sends real phone here)
-        if ($remoteJidAlt) {
-            $altJidPart = explode('@', $remoteJidAlt)[0];
-            $cleanAltPart = explode(':', $altJidPart)[0];
-            $isAltRealPhone = preg_match('/^[1-9]\d{9,14}$/', $cleanAltPart);
-            
-            if ($isAltRealPhone) {
-                $phoneNumber = $cleanAltPart;
-                
-                // ⭐ AUTO-CREATE LID MAPPING if remoteJid is different
-                if ($cleanJidPart !== $cleanAltPart) {
-                    \App\Models\LidMapping::createMapping($cleanJidPart, $phoneNumber, $messageId, $channel->id);
+            // INDIVIDUAL MESSAGE HANDLING
+            $cleanJidPart = explode(':', $jidPart)[0];
+
+            if ($targetContact) {
+                // Sincronización de conversación específica: vincular directamente
+                $contact = $targetContact;
+
+                // Si el mensaje vino con identificador LID, registrar mapeo y guardar en contacto
+                if (str_contains($remoteJid, '@lid') || (!str_starts_with($cleanJidPart, '57') && strlen($cleanJidPart) > 12)) {
+                    \App\Models\LidMapping::createMapping($cleanJidPart, $targetContact->phone_number, $messageId, $channel->id);
+                    if (!$targetContact->lid_jid) {
+                        $targetContact->update(['lid_jid' => $cleanJidPart]);
+                    }
                 }
-            }
-        }
-        
-        // ⭐ PRIORITY 2: Check LID mapping table
-        if (!$phoneNumber) {
-            $mapped = \App\Models\LidMapping::findPhoneByLid($cleanJidPart);
-            if ($mapped) {
-                $phoneNumber = $mapped;
-            }
-        }
-        
-        // ⭐ PRIORITY 3: Use JID number only if it matches valid Colombian phone format
-        // LID identifiers can look numeric (e.g., 12034548703442) but aren't real phones.
-        // Colombian numbers: 57 + 10 digits = 12 digits exactly.
-        if (!$phoneNumber && preg_match('/^57\d{10}$/', $cleanJidPart)) {
-            $phoneNumber = $cleanJidPart;
-        }
-        
-        // If we couldn't resolve a real phone number, create as LID lead
-        $isLidLead = false;
-        if (!$phoneNumber) {
-            $phoneNumber = $cleanJidPart;
-            $isLidLead = true;
-        }
+            } else {
+                $phoneNumber = null;
 
-        // Minimal validation
-        if (empty($phoneNumber) || strlen($phoneNumber) < 8) {
-            return false;
-        }
+                // PRIORIDAD 1: remoteJidAlt
+                if ($remoteJidAlt) {
+                    $altJidPart = explode('@', $remoteJidAlt)[0];
+                    $cleanAltPart = explode(':', $altJidPart)[0];
+                    if (Contact::isValidPhoneFormat($cleanAltPart)) {
+                        $phoneNumber = $cleanAltPart;
+                        if ($cleanJidPart !== $cleanAltPart) {
+                            \App\Models\LidMapping::createMapping($cleanJidPart, $phoneNumber, $messageId, $channel->id);
+                        }
+                    }
+                }
 
-        // ⭐ DEDUPLICACIÓN: Si resolvimos número real, buscar y fusionar contacto LID previo
-        if (!$isLidLead) {
-            $existingLidContact = Contact::where('channel_id', $channel->id)
-                ->where('is_lid', true)
-                ->where(function ($q) use ($cleanJidPart) {
-                    $q->where('lid_jid', $cleanJidPart)
-                      ->orWhere('phone_number', $cleanJidPart);
-                })
-                ->first();
-            
-            if ($existingLidContact) {
-                $contact = $existingLidContact->resolveLid($phoneNumber, $channel->id);
-                goto syncMessageProcessing;
-            }
-        }
+                // PRIORIDAD 2: senderPn o participant
+                if (!$phoneNumber) {
+                    $senderPn = $msgData['senderPn'] ?? $key['senderPn'] ?? null;
+                    if ($senderPn && Contact::isValidPhoneFormat($senderPn)) {
+                        $phoneNumber = $senderPn;
+                        \App\Models\LidMapping::createMapping($cleanJidPart, $phoneNumber, $messageId, $channel->id);
+                    } elseif (!empty($key['participant']) && str_contains($key['participant'], '@s.whatsapp.net')) {
+                        $partPn = explode(':', explode('@', $key['participant'])[0])[0];
+                        if (Contact::isValidPhoneFormat($partPn)) {
+                            $phoneNumber = $partPn;
+                            \App\Models\LidMapping::createMapping($cleanJidPart, $phoneNumber, $messageId, $channel->id);
+                        }
+                    }
+                }
 
-        // Standard JID format for sending messages
-        $standardJid = $isLidLead
-            ? $remoteJid  // Mantener JID @lid original
-            : $phoneNumber . '@s.whatsapp.net';
+                // PRIORIDAD 3: Tabla lid_mappings
+                if (!$phoneNumber) {
+                    $mapped = \App\Models\LidMapping::findPhoneByLid($cleanJidPart);
+                    if ($mapped) {
+                        $phoneNumber = $mapped;
+                    }
+                }
 
-        // Para LIDs, buscar también por lid_jid para evitar duplicados
-        if ($isLidLead) {
-            $contact = Contact::where('channel_id', $channel->id)
-                ->where(function ($q) use ($phoneNumber, $cleanJidPart) {
-                    $q->where('phone_number', $phoneNumber)
-                      ->orWhere('lid_jid', $cleanJidPart);
-                })
-                ->first();
-        } else {
-            $contact = Contact::where('channel_id', $channel->id)
-                ->where('phone_number', $phoneNumber)
-                ->first();
-        }
+                // PRIORIDAD 4: El propio JID tiene formato de teléfono válido
+                if (!$phoneNumber && Contact::isValidPhoneFormat($cleanJidPart)) {
+                    $phoneNumber = $cleanJidPart;
+                }
 
-        if (!$contact) {
-            // Create new contact - nunca usar "Você"/"Voce" como push_name
-            $safePushName = $pushName;
-            if ($safePushName) {
-                $lp = strtolower(trim($safePushName));
-                if ($lp === 'você' || $lp === 'voce') {
+                // Si no se pudo resolver número real, crear como lead LID temporal (NUNCA descartar)
+                $isLidLead = false;
+                if (!$phoneNumber) {
+                    $phoneNumber = $cleanJidPart;
+                    $isLidLead = true;
+                }
+
+                if (empty($phoneNumber) || strlen($phoneNumber) < 8) {
+                    return false;
+                }
+
+                // DEDUPLICACIÓN: si resolvimos número real, fusionar contacto LID previo si existía
+                if (!$isLidLead) {
+                    $existingLidContact = Contact::where('channel_id', $channel->id)
+                        ->where('is_lid', true)
+                        ->where(function ($q) use ($cleanJidPart) {
+                            $q->where('lid_jid', $cleanJidPart)
+                              ->orWhere('phone_number', $cleanJidPart);
+                        })
+                        ->first();
+
+                    if ($existingLidContact) {
+                        $contact = $existingLidContact->resolveLid($phoneNumber, $channel->id);
+                        goto syncMessageProcessing;
+                    }
+                }
+
+                $standardJid = $isLidLead ? $remoteJid : $phoneNumber . '@s.whatsapp.net';
+
+                if ($isLidLead) {
+                    $contact = Contact::where('channel_id', $channel->id)
+                        ->where(function ($q) use ($phoneNumber, $cleanJidPart) {
+                            $q->where('phone_number', $phoneNumber)
+                              ->orWhere('lid_jid', $cleanJidPart);
+                        })
+                        ->first();
+                } else {
+                    $contact = Contact::where('channel_id', $channel->id)
+                        ->where('phone_number', $phoneNumber)
+                        ->first();
+                }
+
+                if (!$contact) {
+                    // Contacto nuevo - nunca usar pushName de fromMe ni "Você"
                     $safePushName = null;
+                    if (!$isFromMe && $pushName) {
+                        $lp = strtolower(trim($pushName));
+                        if ($lp !== 'você' && $lp !== 'voce') {
+                            $safePushName = $pushName;
+                        }
+                    }
+                    $contact = Contact::firstOrCreate(
+                        [
+                            'channel_id' => $channel->id,
+                            'phone_number' => $phoneNumber,
+                        ],
+                        [
+                            'remote_jid' => $standardJid,
+                            'push_name' => $safePushName,
+                            'name' => $safePushName,
+                            'is_lid' => $isLidLead,
+                            'lid_jid' => $isLidLead ? $cleanJidPart : null,
+                        ]
+                    );
+                } else {
+                    $updates = [];
+                    $lowerPush = $pushName ? strtolower(trim($pushName)) : '';
+                    $isSafePushName = !$isFromMe && $pushName && $lowerPush !== 'você' && $lowerPush !== 'voce';
+
+                    if ($isSafePushName) {
+                        if ($pushName !== $contact->push_name) {
+                            $updates['push_name'] = $pushName;
+                        }
+                        if (!$contact->name) {
+                            $updates['name'] = $pushName;
+                        }
+                    }
+
+                    if ($contact->is_lid && !$isLidLead) {
+                        $updates['is_lid'] = false;
+                        $updates['remote_jid'] = $standardJid;
+                        if ($contact->lid_jid) {
+                            \App\Models\LidMapping::createMapping($contact->lid_jid, $phoneNumber, $messageId, $channel->id);
+                        }
+                    } elseif (!$contact->is_lid && $contact->remote_jid !== $standardJid) {
+                        $updates['remote_jid'] = $standardJid;
+                    }
+
+                    if (!empty($updates)) {
+                        $contact->update($updates);
+                    }
                 }
-            }
-            $contact = Contact::firstOrCreate(
-                [
-                    'channel_id' => $channel->id,
-                    'phone_number' => $phoneNumber,
-                ],
-                [
-                    'remote_jid' => $standardJid,
-                    'push_name' => $safePushName,
-                    'is_lid' => $isLidLead,
-                    'lid_jid' => $isLidLead ? $cleanJidPart : null,
-                ]
-            );
-        } else {
-            // Update contact if needed
-            $updates = [];
-            
-            // Nunca sobreescribir con "Você"/"Voce" (nombre propio de WhatsApp)
-            $lowerPush = $pushName ? strtolower(trim($pushName)) : '';
-            $isSafePushName = $pushName && $lowerPush !== 'você' && $lowerPush !== 'voce';
-            
-            if ($isSafePushName && $pushName !== $contact->push_name) {
-                $updates['push_name'] = $pushName;
-            }
-            
-            // Si el contacto era LID y ahora tenemos número real, resolver
-            if ($contact->is_lid && !$isLidLead) {
-                $updates['is_lid'] = false;
-                $updates['remote_jid'] = $standardJid;
-                if ($contact->lid_jid) {
-                    \App\Models\LidMapping::createMapping($contact->lid_jid, $phoneNumber, $messageId, $channel->id);
-                }
-            } elseif (!$contact->is_lid && $contact->remote_jid !== $standardJid) {
-                $updates['remote_jid'] = $standardJid;
-            }
-            
-            if (!empty($updates)) {
-                $contact->update($updates);
             }
         }
-        } // End of individual message handling (else block)
 
         syncMessageProcessing:
         // Extract message content and type
         $messageContent = $msgData['message'] ?? [];
-        
+
+        // Normalize viewOnce wrapper
+        if (isset($messageContent['viewOnceMessage']['message'])) {
+            $messageContent = $messageContent['viewOnceMessage']['message'];
+        } elseif (isset($messageContent['viewOnceMessageV2']['message'])) {
+            $messageContent = $messageContent['viewOnceMessageV2']['message'];
+        }
+
+        // Skip reactions
+        if (isset($messageContent['reactionMessage'])) {
+            return false;
+        }
+
         // Determine type and content
         $type = 'text';
         $content = null;
@@ -2298,8 +2514,7 @@ class Index extends Component
         } elseif (isset($messageContent['stickerMessage'])) {
             $type = 'sticker';
             $content = '[Sticker]';
-        } elseif (isset($messageContent['reactionMessage'])) {
-            return false;
+            $mediaMimeType = $messageContent['stickerMessage']['mimetype'] ?? 'image/webp';
         } elseif (isset($messageContent['protocolMessage'])) {
             $protoType = $messageContent['protocolMessage']['type'] ?? null;
             if ($protoType === 'REVOKE' || $protoType === 0) {
@@ -2308,9 +2523,6 @@ class Index extends Component
             } else {
                 return false;
             }
-        } elseif (isset($messageContent['viewOnceMessage']) || isset($messageContent['viewOnceMessageV2'])) {
-            $type = 'image';
-            $content = '[Vista única]';
         } elseif (isset($messageContent['pollCreationMessage']) || isset($messageContent['pollCreationMessageV3'])) {
             $type = 'text';
             $pollMsg = $messageContent['pollCreationMessage'] ?? $messageContent['pollCreationMessageV3'] ?? [];
@@ -2326,12 +2538,22 @@ class Index extends Component
             ? \Carbon\Carbon::createFromTimestamp($timestamp, 'UTC')->setTimezone(config('app.timezone'))
             : now();
 
-        // Determine direction
-        $isFromMe = $key['fromMe'] ?? false;
+        // Determine direction and status
         $direction = $isFromMe ? 'outgoing' : 'incoming';
         $status = $isFromMe ? 'sent' : 'delivered';
+        $finalSenderName = $isGroupMessage ? $senderName : ($isFromMe ? 'Tú' : ($contact->name ?? $contact->push_name));
+        $finalSenderPhone = $isGroupMessage ? $senderPhone : ($isFromMe ? $channel->phone_number : $contact->phone_number);
 
-        // Create message (without media_url - will be loaded on-demand)
+        // Try to save inline base64 if present in payload
+        $mediaUrl = null;
+        if (in_array($type, ['image', 'video', 'audio', 'document', 'sticker'])) {
+            $inlineBase64 = $msgData['message']['base64'] ?? $msgData['base64'] ?? null;
+            if ($inlineBase64) {
+                $mediaUrl = $this->saveImportedBase64Media($inlineBase64, $type, $messageId, $mediaMimeType);
+            }
+        }
+
+        // Create message
         Message::create([
             'channel_id' => $channel->id,
             'contact_id' => $contact->id,
@@ -2340,10 +2562,10 @@ class Index extends Component
             'type' => $type,
             'direction' => $direction,
             'status' => $status,
-            'media_url' => null,
+            'media_url' => $mediaUrl,
             'media_mime_type' => $mediaMimeType,
-            'sender_name' => $senderName,
-            'sender_phone' => $senderPhone,
+            'sender_name' => $finalSenderName,
+            'sender_phone' => $finalSenderPhone,
             'sent_at' => $sentAt,
             'is_read' => true,
         ]);

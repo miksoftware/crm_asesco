@@ -102,9 +102,9 @@ class LidResolverService
             );
         }
 
-        // PRIORIDAD 5: Número colombiano válido en el propio LID (raro pero posible)
+        // PRIORIDAD 5: Número de teléfono válido en el propio identificador (colombiano o internacional)
         $cleanLid = preg_replace('/[^0-9]/', '', explode(':', $lidPart)[0]);
-        if (preg_match('/^57\d{10}$/', $cleanLid)) {
+        if (\App\Models\Contact::isValidPhoneFormat($cleanLid)) {
             return new LidResolutionResult(
                 resolved: true,
                 phoneNumber: $cleanLid,
