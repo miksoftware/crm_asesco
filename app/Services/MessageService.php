@@ -373,13 +373,40 @@ class MessageService
             }
         }
         
-        // Check for duplicate message
+        // Check for duplicate message by external message_id
         $existingMessage = Message::where('message_id', $messageId)
             ->where('channel_id', $channel->id)
             ->first();
             
         if ($existingMessage) {
             return $existingMessage;
+        }
+        
+        // ⭐ DEDUP para mensajes fromMe enviados desde el CRM:
+        // Cuando enviamos un mensaje desde el CRM, se crea con message_id=null
+        // y el SendMessageJob lo actualiza después. Si el webhook llega antes
+        // que el Job actualice message_id, el check anterior no lo encuentra.
+        // Buscamos un mensaje outgoing reciente (últimos 30s) con el mismo contenido.
+        if ($isFromMe && $messageId) {
+            $recentDuplicate = Message::where('contact_id', $contact->id)
+                ->where('channel_id', $channel->id)
+                ->where('direction', 'outgoing')
+                ->where('content', $content)
+                ->whereIn('status', ['pending', 'sent'])
+                ->where('created_at', '>=', now()->subSeconds(30))
+                ->where(function ($q) use ($messageId) {
+                    $q->whereNull('message_id')
+                      ->orWhere('message_id', $messageId);
+                })
+                ->first();
+            
+            if ($recentDuplicate) {
+                // Actualizar el message_id si aún no lo tenía
+                if (!$recentDuplicate->message_id) {
+                    $recentDuplicate->update(['message_id' => $messageId, 'status' => 'sent']);
+                }
+                return $recentDuplicate;
+            }
         }
         
         // Parse timestamp

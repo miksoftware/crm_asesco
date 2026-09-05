@@ -170,14 +170,21 @@ class WebhookController extends Controller
                 return response()->json(['status' => 'skipped', 'reason' => 'unresolvable_contact']);
             }
             
-            // Create notification for users assigned to this channel
-            $this->notificationService->createMessageNotification($message);
+            // Si el mensaje ya existía (deduplicado), no re-notificar ni re-emitir.
+            // processIncomingMessage retorna el mensaje existente si ya estaba en BD.
+            // Verificamos si fue recién creado comparando created_at con ahora.
+            $isNewMessage = $message->wasRecentlyCreated;
             
-            // Broadcast new message event for real-time updates
-            $this->broadcastNewMessage($message);
+            if ($isNewMessage) {
+                // Create notification for users assigned to this channel
+                $this->notificationService->createMessageNotification($message);
+                
+                // Broadcast new message event for real-time updates
+                $this->broadcastNewMessage($message);
+            }
             
             return response()->json([
-                'status' => 'processed',
+                'status' => $isNewMessage ? 'processed' : 'deduplicated',
                 'message_id' => $message->id,
             ]);
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {

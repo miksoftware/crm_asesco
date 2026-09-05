@@ -1618,6 +1618,14 @@ class Index extends Component
         unset($this->selectedContact);
     }
 
+    #[On('refresh-conversations')]
+    public function handleRefreshConversations(): void
+    {
+        // Solo refrescar la lista de conversaciones del sidebar,
+        // sin tocar los mensajes de la conversación activa.
+        unset($this->conversations);
+    }
+
     #[On('channel-status-updated')]
     public function handleChannelStatusUpdated(array $data): void
     {

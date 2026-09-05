@@ -118,16 +118,20 @@ class EvolutionWebSocketService
             $message = $this->messageService->processIncomingMessage($webhookPayload);
 
             if ($message) {
-                // Crear notificación
-                $this->notificationService->createMessageNotification($message);
+                // Solo emitir para mensajes nuevos, no para deduplicados
+                if ($message->wasRecentlyCreated) {
+                    // Crear notificación
+                    $this->notificationService->createMessageNotification($message);
 
-                // Emitir evento de Broadcasting para el frontend
-                broadcast(new NewWhatsAppMessage($message));
+                    // Emitir evento de Broadcasting para el frontend
+                    broadcast(new NewWhatsAppMessage($message));
+                }
 
-                Log::info('WS: Mensaje procesado y emitido', [
+                Log::info('WS: Mensaje procesado', [
                     'message_id' => $message->id,
                     'contact_id' => $message->contact_id,
                     'direction' => $message->direction,
+                    'is_new' => $message->wasRecentlyCreated,
                 ]);
 
                 return true;

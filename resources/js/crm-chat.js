@@ -58,12 +58,9 @@ window.CrmChat = {
             .listen('.new.message', (data) => {
                 console.log('[CRM Chat] Nuevo mensaje en canal:', data);
                 
-                // Emitir evento Livewire para actualizar lista de conversaciones
-                Livewire.dispatch('new-message', [{ 
-                    channel_id: data.channel_id,
-                    contact_id: data.contact_id,
-                    direction: data.direction,
-                }]);
+                // Solo actualizar la lista de conversaciones (sidebar).
+                // Los mensajes de la conversación activa son manejados por subscribeToContact.
+                Livewire.dispatch('refresh-conversations');
 
                 // Emitir evento para actualizar badges de notificación
                 Livewire.dispatch('notifications-updated');
@@ -116,13 +113,38 @@ window.CrmChat = {
             .listen('.new.message', (data) => {
                 console.log('[CRM Chat] Mensaje en conversación:', data);
                 
-                // Agregar mensaje al DOM instantáneamente
+                // Deduplicación: verificar si el mensaje ya existe en el DOM por su ID interno
+                if (document.querySelector(`[data-message-id="${data.id}"]`)) {
+                    console.log('[CRM Chat] Mensaje ya existe en DOM, ignorando', data.id);
+                    return;
+                }
+
+                // También verificar por message_id externo (WhatsApp ID)
+                if (data.message_id && document.querySelector(`[data-external-id="${data.message_id}"]`)) {
+                    console.log('[CRM Chat] Mensaje ya existe por external ID, ignorando', data.message_id);
+                    return;
+                }
+
+                // Si es un mensaje outgoing, probablemente fue enviado desde esta misma sesión
+                // y Livewire ya lo renderizó. No insertar duplicado en el DOM.
+                // Solo agregar outgoing si viene de otra sesión (ej: enviado desde el teléfono).
+                if (data.direction === 'outgoing') {
+                    // Refrescar via Livewire para que el render del servidor lo muestre
+                    Livewire.dispatch('new-message', [{ 
+                        channel_id: data.channel_id,
+                        contact_id: data.contact_id,
+                        direction: data.direction,
+                    }]);
+                    return;
+                }
+
+                // Agregar mensaje entrante al DOM instantáneamente
                 this.appendMessageToChat(data);
 
                 // Scroll automático al último mensaje
                 this.scrollToBottom();
 
-                // Marcar como leído si estamos viendo esta conversación
+                // Notificar a Livewire para actualizar estado (marcar como leído, etc.)
                 Livewire.dispatch('new-message', [{
                     channel_id: data.channel_id,
                     contact_id: data.contact_id,

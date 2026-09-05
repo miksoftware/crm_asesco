@@ -397,7 +397,7 @@
                                 </div>
                             @endif
 
-                            <div wire:key="message-{{ $message->id }}" class="flex {{ $message->direction === 'outgoing' ? 'justify-end' : 'justify-start' }} mb-1 group/msg">
+                            <div wire:key="message-{{ $message->id }}" data-message-id="{{ $message->id }}" class="flex {{ $message->direction === 'outgoing' ? 'justify-end' : 'justify-start' }} mb-1 group/msg">
                                 {{-- Botón reenviar (izquierda para outgoing) --}}
                                 @if($message->direction === 'outgoing' && $canSend)
                                     <button wire:click="openForwardModal({{ $message->id }})" 

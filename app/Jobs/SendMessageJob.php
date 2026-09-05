@@ -3,7 +3,6 @@
 namespace App\Jobs;
 
 use App\Events\MessageStatusUpdated;
-use App\Events\NewWhatsAppMessage;
 use App\Models\Message;
 use App\Services\EvolutionApiService;
 use Illuminate\Bus\Queueable;
@@ -72,6 +71,9 @@ class SendMessageJob implements ShouldQueue
                 ]);
 
                 // Emitir actualización de estado al frontend en tiempo real
+                // NOTA: NO emitimos NewWhatsAppMessage aquí porque el mensaje ya fue
+                // creado e insertado en el DOM por Livewire antes de despachar este Job.
+                // Solo actualizamos el estado (pending → sent) para cambiar los check marks.
                 try {
                     broadcast(new MessageStatusUpdated(
                         messageId: $message->id,
@@ -80,8 +82,6 @@ class SendMessageJob implements ShouldQueue
                         contactId: $message->contact_id,
                         channelId: $message->channel_id,
                     ));
-                    // También emitir el mensaje completo para que aparezca en otros navegadores
-                    broadcast(new NewWhatsAppMessage($message->fresh()));
                 } catch (\Exception $broadcastException) {
                     // Broadcasting no disponible, no es crítico
                     Log::debug('SendMessageJob: Broadcasting no disponible', [
